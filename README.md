@@ -59,6 +59,9 @@ npm run dev
 |---|---|
 | `TOSS_CLIENT_ID` | 토스증권 Open API client ID |
 | `TOSS_CLIENT_SECRET` | 토스증권 Open API client secret |
+| `TOSS_API_USE_REAL_CLIENT` | `true`로 설정하면 `MockTossApiClient` 대신 실제 API를 호출하는 `TossHttpApiClient`를 사용 (기본값 `false`) |
+
+`TOSS_API_USE_REAL_CLIENT`는 **키를 넣어도 자동으로 켜지지 않습니다.** 아래 "토스증권 실연동" 절을 먼저 읽어보세요.
 
 알림 규칙에서 디스코드/이메일 채널을 켜면 다음 변수도 필요합니다:
 
@@ -72,9 +75,22 @@ npm run dev
 
 값은 설정하지 않았습니다 — 필요할 때 직접 채워 넣으세요. 설정하지 않은 채로 해당 채널을 쓰는 알림 규칙이 발동하면, 알림 히스토리에 실패 사유(예: "DISCORD_WEBHOOK_URL이 설정되어 있지 않습니다")가 그대로 기록됩니다 (다른 채널은 정상 발송). 다이제스트는 알림 규칙에 안 묶여 있어서 실패해도 로그에만 남고 조용히 스킵됩니다.
 
+## 토스증권 실연동
+
+`TossApiClient` 인터페이스 뒤에 두 구현체가 있습니다:
+
+- `MockTossApiClient` — 기본값. 실제 API 문서가 없어서 지금까지 전 기능을 이걸로 개발/검증했습니다.
+- `TossHttpApiClient` — OAuth2 client-credentials 인증(`POST /oauth2/token`, 토큰 자동 갱신)까지는 `docs/PLANNING.md` 5절 스펙대로 구현했지만, **실제 시세/계좌 엔드포인트 경로와 응답 필드명은 검증되지 않은 추측**입니다 (`TossHttpApiClient.java` 상단 Javadoc 참고). 공식 문서가 없는 상태라 어쩔 수 없이 REST 관례대로 짜놨을 뿐이라, API 키를 넣는다고 바로 동작한다고 보장 못 합니다.
+
+그래서 `TOSS_CLIENT_ID`/`TOSS_CLIENT_SECRET`을 넣어도 `TOSS_API_USE_REAL_CLIENT=true`로 **직접 켜기 전까지는** 계속 Mock이 서빙합니다 (`TossApiClientConfig`가 빈을 갈아끼움). 순서 제안:
+
+1. 키를 넣고 `TOSS_API_USE_REAL_CLIENT=true`로 켠 뒤, `POST /api/toss/verify-connection`으로 OAuth 토큰 발급만 먼저 확인하세요 (데이터 엔드포인트는 안 건드립니다).
+2. 토큰 발급이 성공하면, 실제 토스증권 API 문서를 보고 `TossHttpApiClient`의 `QUOTE_PATH`/`CANDLES_PATH`/`ACCOUNT_SUMMARY_PATH`/`HOLDINGS_PATH`와 각 DTO의 필드명을 실제 스펙에 맞게 고치세요.
+3. 그 다음 대시보드/관심종목 등 나머지 기능을 실 데이터로 확인하세요.
+
 ## 현재 상태 (1~3단계)
 
-- **토스증권 연동**: 실제 API 문서가 없어 `TossApiClient` 인터페이스만 확정하고, `MockTossApiClient`(랜덤워크 가상 시세, 52주 고저·평균거래량·60일 캔들 포함)로 나머지 기능을 개발했습니다. 실제 엔드포인트 스펙이 확보되면 `TossApiClient`를 구현하는 새 빈으로 교체하면 됩니다 — 호출부(서비스/컨트롤러)는 수정할 필요가 없습니다.
+- **토스증권 연동**: 위 "토스증권 실연동" 절 참고. `MockTossApiClient`(랜덤워크 가상 시세, 52주 고저·평균거래량·60일 캔들 포함)가 기본이고, `TossHttpApiClient`는 OAuth만 스펙대로, 데이터 엔드포인트는 추측 상태입니다. 어느 쪽이든 호출부(서비스/컨트롤러)는 수정할 필요가 없습니다.
 - **관심종목**: 추가/삭제/목록 조회 (`/api/watchlist`), 실시간(모의) 시세·등락률 포함
 - **알림 규칙**: 목표가 이상/이하, 등락률(±N%), 거래량 급증(평균 대비 N배), 52주 신고가/신저가 근접 — 6가지 조건 × 디스코드/이메일/인앱 채널, 쿨다운, 활성/비활성 토글, 생성/삭제 (`/api/alert-rules`)
 - **스케줄러**: 60초 주기로 활성 규칙을 평가하고 조건 충족 시 알림 발송 (`PriceAlertScheduler`)

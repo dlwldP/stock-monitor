@@ -11,7 +11,6 @@ import java.util.Map;
 import java.util.Random;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ThreadLocalRandom;
-import org.springframework.stereotype.Component;
 
 /**
  * Stand-in for the real Toss Securities API (see {@link TossApiClient}). Prices do a
@@ -20,8 +19,11 @@ import org.springframework.stereotype.Component;
  *
  * <p>52-week high/low and average volume are derived once from the seed price and held
  * fixed per symbol — a real implementation would pull these from actual history.
+ *
+ * <p>Registered as a bean by {@link com.stockmonitor.config.TossApiClientConfig}, not via
+ * {@code @Component} directly, so it can be swapped for {@link TossHttpApiClient} based on
+ * the {@code toss.api.use-real-client} setting.
  */
-@Component
 public class MockTossApiClient implements TossApiClient {
 
 	/** symbol -> price/volume state. Doubles as the "seed" price on first access. */
