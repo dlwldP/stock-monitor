@@ -48,7 +48,7 @@ public class PriceAlertScheduler {
 		for (AlertRule rule : rules) {
 			try {
 				Quote quote = tossApiClient.getQuote(rule.getSymbol(), rule.getMarket());
-				if (rule.isSatisfiedBy(quote.price()) && rule.isCooldownElapsed(now)) {
+				if (rule.isSatisfiedBy(quote) && rule.isCooldownElapsed(now)) {
 					dispatcher.dispatch(new AlertTriggeredEvent(rule, quote, now));
 					rule.setLastTriggeredAt(now); // managed entity: flushed at transaction commit
 				}

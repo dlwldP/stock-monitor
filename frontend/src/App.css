@@ -10,14 +10,32 @@
 
 .dashboard-header {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
   gap: 1rem;
+  flex-wrap: wrap;
 }
 
 .dashboard-header h1 {
   margin: 0;
   font-size: 32px;
+}
+
+.view-tabs {
+  display: flex;
+  gap: 6px;
+}
+
+.view-tabs button {
+  border-radius: 999px;
+  font-size: 14px;
+}
+
+.view-tabs button.active {
+  background: var(--accent-bg);
+  border-color: var(--accent-border);
+  color: var(--text-h);
+  font-weight: 600;
 }
 
 .status {
@@ -254,4 +272,12 @@ button.link {
 
 .log-failed {
   color: #d0362c;
+}
+
+.pagination {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 1rem;
+  justify-content: center;
 }

@@ -1,9 +1,12 @@
 import type {
+  AlertChannel,
   AlertLog,
+  AlertLogStatus,
   AlertRule,
   ApiErrorBody,
   DashboardResponse,
   Market,
+  PageResponse,
   WatchlistItem,
 } from '../types'
 
@@ -57,5 +60,13 @@ export const api = {
     request<AlertRule>(`/api/alert-rules/${id}`, { method: 'PATCH', body: JSON.stringify({ active }) }),
   deleteAlertRule: (id: number) => request<void>(`/api/alert-rules/${id}`, { method: 'DELETE' }),
 
-  getAlertLogs: (limit = 10) => request<AlertLog[]>(`/api/alert-logs?limit=${limit}`),
+  getRecentAlertLogs: (limit = 10) => request<AlertLog[]>(`/api/alert-logs/recent?limit=${limit}`),
+  getAlertLogsPage: (filter: { channel?: AlertChannel; status?: AlertLogStatus; page?: number; size?: number }) => {
+    const params = new URLSearchParams()
+    if (filter.channel) params.set('channel', filter.channel)
+    if (filter.status) params.set('status', filter.status)
+    params.set('page', String(filter.page ?? 0))
+    params.set('size', String(filter.size ?? 20))
+    return request<PageResponse<AlertLog>>(`/api/alert-logs?${params.toString()}`)
+  },
 }

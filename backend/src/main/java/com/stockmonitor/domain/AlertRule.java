@@ -11,7 +11,9 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.Table;
+import com.stockmonitor.external.toss.Quote;
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.Instant;
 import java.util.HashSet;
 import java.util.Set;
@@ -23,11 +25,8 @@ import org.hibernate.annotations.CreationTimestamp;
 
 /**
  * A price alert rule. Corresponds to {@code alert_rules} in docs/PLANNING.md section 7.
- *
- * <p>MVP only supports {@link AlertConditionType#PRICE_ABOVE} / {@code PRICE_BELOW}
- * (목표가 도달). It targets a symbol directly rather than a {@link WatchlistItem} FK,
- * matching the original schema — a rule doesn't require the symbol to be on the
- * watchlist.
+ * It targets a symbol directly rather than a {@link WatchlistItem} FK, matching the
+ * original schema — a rule doesn't require the symbol to be on the watchlist.
  */
 @Entity
 @Table(name = "alert_rules")
@@ -89,12 +88,25 @@ public class AlertRule {
 		this.cooldownMinutes = cooldownMinutes;
 	}
 
-	/** Whether the current price satisfies this rule's condition. */
-	public boolean isSatisfiedBy(BigDecimal currentPrice) {
+	/** Whether the given quote satisfies this rule's condition. */
+	public boolean isSatisfiedBy(Quote quote) {
 		return switch (conditionType) {
-			case PRICE_ABOVE -> currentPrice.compareTo(thresholdValue) >= 0;
-			case PRICE_BELOW -> currentPrice.compareTo(thresholdValue) <= 0;
+			case PRICE_ABOVE -> quote.price().compareTo(thresholdValue) >= 0;
+			case PRICE_BELOW -> quote.price().compareTo(thresholdValue) <= 0;
+			case PCT_CHANGE -> quote.changeRate().abs().compareTo(thresholdValue) >= 0;
+			case VOLUME_SPIKE -> quote.avgVolume() > 0
+					&& BigDecimal.valueOf(quote.volume())
+							.compareTo(BigDecimal.valueOf(quote.avgVolume()).multiply(thresholdValue)) >= 0;
+			case WEEK52_HIGH_NEAR -> quote.week52High().signum() > 0
+					&& percentGap(quote.week52High(), quote.price()).compareTo(thresholdValue) <= 0;
+			case WEEK52_LOW_NEAR -> quote.week52Low().signum() > 0
+					&& percentGap(quote.price(), quote.week52Low()).compareTo(thresholdValue) <= 0;
 		};
+	}
+
+	/** {@code (base - other) / base * 100}, as a non-negative percent gap. */
+	private static BigDecimal percentGap(BigDecimal base, BigDecimal other) {
+		return base.subtract(other).abs().divide(base, 6, RoundingMode.HALF_UP).multiply(BigDecimal.valueOf(100));
 	}
 
 	/** Whether enough time has passed since the last firing (or it never fired) to notify again. */

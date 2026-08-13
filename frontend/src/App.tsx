@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import './App.css'
 import { api } from './api/client'
+import { AlertHistoryPage } from './components/AlertHistoryPage'
 import { AlertLogPreview } from './components/AlertLogPreview'
 import { AlertRuleForm } from './components/AlertRuleForm'
 import { AlertRuleList } from './components/AlertRuleList'
@@ -12,8 +13,10 @@ import type { AccountSummary, AlertLog, AlertRule, Holding, Market, WatchlistIte
 const REFRESH_INTERVAL_MS = 30_000
 
 type BackendStatus = 'checking' | 'ok' | 'unreachable'
+type View = 'dashboard' | 'history'
 
 function App() {
+  const [view, setView] = useState<View>('dashboard')
   const [backendStatus, setBackendStatus] = useState<BackendStatus>('checking')
   const [accountSummary, setAccountSummary] = useState<AccountSummary | null>(null)
   const [holdings, setHoldings] = useState<Holding[]>([])
@@ -29,7 +32,7 @@ function App() {
         api.getDashboard(),
         api.getWatchlist(),
         api.getAlertRules(),
-        api.getAlertLogs(10),
+        api.getRecentAlertLogs(10),
       ])
       setAccountSummary(dashboard.accountSummary)
       setHoldings(dashboard.holdings)
@@ -83,6 +86,14 @@ function App() {
     <main className="dashboard">
       <header className="dashboard-header">
         <h1>TossWatch</h1>
+        <nav className="view-tabs">
+          <button type="button" className={view === 'dashboard' ? 'active' : ''} onClick={() => setView('dashboard')}>
+            대시보드
+          </button>
+          <button type="button" className={view === 'history' ? 'active' : ''} onClick={() => setView('history')}>
+            알림 히스토리
+          </button>
+        </nav>
         <span className={`status status-${backendStatus}`}>
           {backendStatus === 'checking' && 'Backend 확인 중...'}
           {backendStatus === 'ok' && 'Backend 연결됨'}
@@ -98,26 +109,32 @@ function App() {
         </p>
       )}
 
-      {accountSummary && <AssetSummaryCard summary={accountSummary} />}
-      <HoldingsTable holdings={holdings} />
-      <WatchlistPanel
-        items={watchlist}
-        onAdd={handleAddWatchlistItem}
-        onDelete={handleDeleteWatchlistItem}
-        onAddAlertRule={(symbol, market) => setAlertFormTarget({ symbol, market })}
-      />
+      {view === 'dashboard' ? (
+        <>
+          {accountSummary && <AssetSummaryCard summary={accountSummary} />}
+          <HoldingsTable holdings={holdings} />
+          <WatchlistPanel
+            items={watchlist}
+            onAdd={handleAddWatchlistItem}
+            onDelete={handleDeleteWatchlistItem}
+            onAddAlertRule={(symbol, market) => setAlertFormTarget({ symbol, market })}
+          />
 
-      {alertFormTarget && (
-        <AlertRuleForm
-          symbol={alertFormTarget.symbol}
-          market={alertFormTarget.market}
-          onSubmit={handleCreateAlertRule}
-          onClose={() => setAlertFormTarget(null)}
-        />
+          {alertFormTarget && (
+            <AlertRuleForm
+              symbol={alertFormTarget.symbol}
+              market={alertFormTarget.market}
+              onSubmit={handleCreateAlertRule}
+              onClose={() => setAlertFormTarget(null)}
+            />
+          )}
+
+          <AlertRuleList rules={alertRules} onToggleActive={handleToggleAlertRule} onDelete={handleDeleteAlertRule} />
+          <AlertLogPreview logs={alertLogs} />
+        </>
+      ) : (
+        <AlertHistoryPage />
       )}
-
-      <AlertRuleList rules={alertRules} onToggleActive={handleToggleAlertRule} onDelete={handleDeleteAlertRule} />
-      <AlertLogPreview logs={alertLogs} />
     </main>
   )
 }

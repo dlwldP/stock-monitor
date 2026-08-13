@@ -14,11 +14,14 @@ import org.springframework.stereotype.Component;
  * Stand-in for the real Toss Securities API (see {@link TossApiClient}). Prices do a
  * small random walk on every call so the dashboard looks alive and alert rules have a
  * realistic chance to fire during manual testing. Not backed by any real market data.
+ *
+ * <p>52-week high/low and average volume are derived once from the seed price and held
+ * fixed per symbol — a real implementation would pull these from actual history.
  */
 @Component
 public class MockTossApiClient implements TossApiClient {
 
-	/** symbol -> (previous-close, current price). Doubles as the "seed" price on first access. */
+	/** symbol -> price/volume state. Doubles as the "seed" price on first access. */
 	private final Map<String, PriceState> prices = new ConcurrentHashMap<>();
 
 	private static final Map<String, BigDecimal> SEED_PRICES = Map.of(
@@ -36,7 +39,14 @@ public class MockTossApiClient implements TossApiClient {
 	public Quote getQuote(String symbol, Market market) {
 		PriceState state = prices.computeIfAbsent(symbol, s -> {
 			BigDecimal seed = SEED_PRICES.getOrDefault(s, seedFromHash(s, market));
-			return new PriceState(seed, seed);
+			int scale = scaleFor(market);
+			return new PriceState(
+					seed,
+					seed,
+					seed.multiply(new BigDecimal("1.25")).setScale(scale, RoundingMode.HALF_UP),
+					seed.multiply(new BigDecimal("0.75")).setScale(scale, RoundingMode.HALF_UP),
+					// stable per-symbol baseline volume, independent of the random walk below
+					500_000L + Math.abs((s + market).hashCode()) % 2_000_000L);
 		});
 
 		BigDecimal current;
@@ -53,8 +63,14 @@ public class MockTossApiClient implements TossApiClient {
 				.multiply(BigDecimal.valueOf(100))
 				.setScale(2, RoundingMode.HALF_UP);
 
-		long volume = ThreadLocalRandom.current().nextLong(10_000, 5_000_000);
-		return new Quote(symbol, market, current, changeRate, volume, Instant.now());
+		// Random around the baseline so VOLUME_SPIKE occasionally has something to catch,
+		// including an occasional deliberate spike (3x-6x) to make the condition testable.
+		boolean spike = ThreadLocalRandom.current().nextInt(10) == 0;
+		long volume = spike
+				? state.avgVolume * ThreadLocalRandom.current().nextInt(3, 6)
+				: ThreadLocalRandom.current().nextLong(state.avgVolume / 4, state.avgVolume + state.avgVolume / 2);
+
+		return new Quote(symbol, market, current, changeRate, volume, state.avgVolume, state.week52High, state.week52Low, Instant.now());
 	}
 
 	@Override
@@ -92,10 +108,16 @@ public class MockTossApiClient implements TossApiClient {
 	private static final class PriceState {
 		private final BigDecimal previousClose;
 		private BigDecimal current;
+		private final BigDecimal week52High;
+		private final BigDecimal week52Low;
+		private final long avgVolume;
 
-		private PriceState(BigDecimal previousClose, BigDecimal current) {
+		private PriceState(BigDecimal previousClose, BigDecimal current, BigDecimal week52High, BigDecimal week52Low, long avgVolume) {
 			this.previousClose = previousClose;
 			this.current = current;
+			this.week52High = week52High;
+			this.week52Low = week52Low;
+			this.avgVolume = avgVolume;
 		}
 	}
 }

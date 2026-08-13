@@ -18,8 +18,7 @@ public class AlertRuleService {
 
 	public static final int DEFAULT_COOLDOWN_MINUTES = 60;
 
-	/** Channels with a working adapter in MVP; EMAIL ships in stage 2 (docs/PLANNING.md section 10). */
-	private static final Set<AlertChannel> SUPPORTED_CHANNELS = Set.of(AlertChannel.DISCORD, AlertChannel.INAPP);
+	private static final Set<AlertChannel> SUPPORTED_CHANNELS = Set.of(AlertChannel.DISCORD, AlertChannel.INAPP, AlertChannel.EMAIL);
 
 	private final AlertRuleRepository repository;
 	private final AlertLogRepository alertLogRepository;
