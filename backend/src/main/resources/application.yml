@@ -1,0 +1,50 @@
+spring:
+  application:
+    name: stock-monitor-backend
+
+  # Local prototyping DB: H2 in file mode (see docs/PLANNING.md section 9).
+  # Switch to MySQL later by overriding these four properties (e.g. via
+  # environment variables or an application-local.yml that is gitignored).
+  datasource:
+    url: jdbc:h2:file:./data/stockmonitor;AUTO_SERVER=TRUE
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
+
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: update
+    properties:
+      hibernate:
+        format_sql: true
+
+  h2:
+    console:
+      enabled: true
+      path: /h2-console
+
+server:
+  port: 8080
+
+# Toss Securities Open API credentials. Left blank on purpose -
+# provided via environment variables, never committed. See README.
+# Unused for now: MockTossApiClient is the only TossApiClient bean until
+# the real endpoint spec is available (see docs/PLANNING.md section 5).
+toss:
+  api:
+    base-url: https://openapi.tossinvest.com
+    client-id: ${TOSS_CLIENT_ID:}
+    client-secret: ${TOSS_CLIENT_SECRET:}
+
+notification:
+  discord-webhook-url: ${DISCORD_WEBHOOK_URL:}
+
+scheduler:
+  price-poll:
+    fixed-delay-ms: 60000
+    initial-delay-ms: 10000
+
+logging:
+  level:
+    com.stockmonitor: debug
