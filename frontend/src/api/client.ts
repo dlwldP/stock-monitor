@@ -1,9 +1,14 @@
 import type {
+  AccountSnapshot,
+  AlertChannel,
   AlertLog,
+  AlertLogStatus,
   AlertRule,
   ApiErrorBody,
+  Candle,
   DashboardResponse,
   Market,
+  PageResponse,
   WatchlistItem,
 } from '../types'
 
@@ -38,6 +43,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const api = {
   getDashboard: () => request<DashboardResponse>('/api/dashboard'),
+  getAccountHistory: (limit = 90) => request<AccountSnapshot[]>(`/api/dashboard/history?limit=${limit}`),
+  getCandles: (symbol: string, market: Market, days = 60) =>
+    request<Candle[]>(`/api/candles?symbol=${encodeURIComponent(symbol)}&market=${market}&days=${days}`),
 
   getWatchlist: () => request<WatchlistItem[]>('/api/watchlist'),
   addWatchlistItem: (body: { symbol: string; market: Market; displayName?: string }) =>
@@ -57,5 +65,13 @@ export const api = {
     request<AlertRule>(`/api/alert-rules/${id}`, { method: 'PATCH', body: JSON.stringify({ active }) }),
   deleteAlertRule: (id: number) => request<void>(`/api/alert-rules/${id}`, { method: 'DELETE' }),
 
-  getAlertLogs: (limit = 10) => request<AlertLog[]>(`/api/alert-logs?limit=${limit}`),
+  getRecentAlertLogs: (limit = 10) => request<AlertLog[]>(`/api/alert-logs/recent?limit=${limit}`),
+  getAlertLogsPage: (filter: { channel?: AlertChannel; status?: AlertLogStatus; page?: number; size?: number }) => {
+    const params = new URLSearchParams()
+    if (filter.channel) params.set('channel', filter.channel)
+    if (filter.status) params.set('status', filter.status)
+    params.set('page', String(filter.page ?? 0))
+    params.set('size', String(filter.size ?? 20))
+    return request<PageResponse<AlertLog>>(`/api/alert-logs?${params.toString()}`)
+  },
 }

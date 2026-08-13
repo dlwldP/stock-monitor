@@ -7,9 +7,22 @@ interface Props {
   onDelete: (id: number) => Promise<void>
 }
 
-const CONDITION_LABEL: Record<AlertRule['conditionType'], string> = {
-  PRICE_ABOVE: '이상 도달 시',
-  PRICE_BELOW: '이하 도달 시',
+function conditionText(rule: AlertRule): string {
+  const t = formatNumber(rule.thresholdValue)
+  switch (rule.conditionType) {
+    case 'PRICE_ABOVE':
+      return `${t} 이상 도달 시`
+    case 'PRICE_BELOW':
+      return `${t} 이하 도달 시`
+    case 'PCT_CHANGE':
+      return `등락률 ±${t}% 이상`
+    case 'VOLUME_SPIKE':
+      return `거래량 평균 대비 ${t}배 급증`
+    case 'WEEK52_HIGH_NEAR':
+      return `52주 신고가 ${t}% 이내 근접`
+    case 'WEEK52_LOW_NEAR':
+      return `52주 신저가 ${t}% 이내 근접`
+  }
 }
 
 export function AlertRuleList({ rules, onToggleActive, onDelete }: Props) {
@@ -36,9 +49,7 @@ export function AlertRuleList({ rules, onToggleActive, onDelete }: Props) {
                 <td>
                   {rule.symbol} <span className="muted">({rule.market})</span>
                 </td>
-                <td>
-                  {formatNumber(rule.thresholdValue)} {CONDITION_LABEL[rule.conditionType]}
-                </td>
+                <td>{conditionText(rule)}</td>
                 <td>{rule.channels.join(', ')}</td>
                 <td>{rule.lastTriggeredAt ? formatDateTime(rule.lastTriggeredAt) : '-'}</td>
                 <td>

@@ -24,6 +24,22 @@ spring:
       enabled: true
       path: /h2-console
 
+  # SMTP for the email alert channel. Left blank on purpose - see README.
+  # If SMTP_HOST is unset, either no mail sender bean is created or send()
+  # fails at call time; either way EmailNotificationChannel catches it and
+  # logs a FAILED alert_logs entry instead of crashing anything.
+  mail:
+    host: ${SMTP_HOST:}
+    port: ${SMTP_PORT:587}
+    username: ${SMTP_USERNAME:}
+    password: ${SMTP_PASSWORD:}
+    properties:
+      mail:
+        smtp:
+          auth: true
+          starttls:
+            enable: true
+
 server:
   port: 8080
 
@@ -39,11 +55,21 @@ toss:
 
 notification:
   discord-webhook-url: ${DISCORD_WEBHOOK_URL:}
+  email-to: ${NOTIFICATION_EMAIL_TO:}
 
 scheduler:
   price-poll:
     fixed-delay-ms: 60000
     initial-delay-ms: 10000
+  # "자산 추이" trend chart data points. Short by default so local dev/demo sees
+  # movement quickly; a real deployment would set this closer to once a day.
+  snapshot:
+    fixed-delay-ms: 900000
+    initial-delay-ms: 5000
+
+digest:
+  enabled: true
+  cron: "0 0 8 * * *"
 
 logging:
   level:

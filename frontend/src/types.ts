@@ -1,5 +1,11 @@
 export type Market = 'KR' | 'US'
-export type AlertConditionType = 'PRICE_ABOVE' | 'PRICE_BELOW'
+export type AlertConditionType =
+  | 'PRICE_ABOVE'
+  | 'PRICE_BELOW'
+  | 'PCT_CHANGE'
+  | 'VOLUME_SPIKE'
+  | 'WEEK52_HIGH_NEAR'
+  | 'WEEK52_LOW_NEAR'
 export type AlertChannel = 'DISCORD' | 'INAPP' | 'EMAIL'
 export type AlertLogStatus = 'SUCCESS' | 'FAILED'
 
@@ -63,4 +69,28 @@ export interface ApiErrorBody {
   timestamp: string
   message: string
   details?: Record<string, string>
+}
+
+export interface PageResponse<T> {
+  content: T[]
+  page: number
+  size: number
+  totalElements: number
+  totalPages: number
+}
+
+export interface Candle {
+  date: string
+  open: number
+  high: number
+  low: number
+  close: number
+  volume: number
+}
+
+export interface AccountSnapshot {
+  snapshotAt: string
+  totalValue: number
+  dailyPnl: number
+  dailyPnlRate: number
 }

@@ -17,7 +17,22 @@ interface Props {
 
 const CHANNEL_OPTIONS: { value: AlertChannel; label: string }[] = [
   { value: 'DISCORD', label: '디스코드' },
+  { value: 'EMAIL', label: '이메일' },
   { value: 'INAPP', label: '인앱' },
+]
+
+const CONDITION_OPTIONS: {
+  value: AlertConditionType
+  label: string
+  thresholdLabel: string
+  placeholder: string
+}[] = [
+  { value: 'PRICE_BELOW', label: '목표가 이하로 하락', thresholdLabel: '목표가', placeholder: '예: 70000' },
+  { value: 'PRICE_ABOVE', label: '목표가 이상으로 상승', thresholdLabel: '목표가', placeholder: '예: 80000' },
+  { value: 'PCT_CHANGE', label: '등락률 ±N% 이상', thresholdLabel: '등락률(%)', placeholder: '예: 5' },
+  { value: 'VOLUME_SPIKE', label: '거래량 평균 대비 N배 급증', thresholdLabel: '배수', placeholder: '예: 2' },
+  { value: 'WEEK52_HIGH_NEAR', label: '52주 신고가 근접', thresholdLabel: '근접 범위(%)', placeholder: '예: 3' },
+  { value: 'WEEK52_LOW_NEAR', label: '52주 신저가 근접', thresholdLabel: '근접 범위(%)', placeholder: '예: 3' },
 ]
 
 export function AlertRuleForm({ symbol, market, onSubmit, onClose }: Props) {
@@ -28,6 +43,8 @@ export function AlertRuleForm({ symbol, market, onSubmit, onClose }: Props) {
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  const selectedCondition = CONDITION_OPTIONS.find((c) => c.value === conditionType) ?? CONDITION_OPTIONS[0]
+
   function toggleChannel(channel: AlertChannel) {
     setChannels((prev) => (prev.includes(channel) ? prev.filter((c) => c !== channel) : [...prev, channel]))
   }
@@ -36,7 +53,7 @@ export function AlertRuleForm({ symbol, market, onSubmit, onClose }: Props) {
     e.preventDefault()
     const threshold = Number(thresholdValue)
     if (!thresholdValue || Number.isNaN(threshold) || threshold <= 0) {
-      setError('목표가를 올바르게 입력하세요.')
+      setError(`${selectedCondition.thresholdLabel}을(를) 올바르게 입력하세요.`)
       return
     }
     if (channels.length === 0) {
@@ -77,19 +94,22 @@ export function AlertRuleForm({ symbol, market, onSubmit, onClose }: Props) {
           <label>
             조건
             <select value={conditionType} onChange={(e) => setConditionType(e.target.value as AlertConditionType)}>
-              <option value="PRICE_BELOW">목표가 이하로 하락</option>
-              <option value="PRICE_ABOVE">목표가 이상으로 상승</option>
+              {CONDITION_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
             </select>
           </label>
           <label>
-            목표가
+            {selectedCondition.thresholdLabel}
             <input
               type="number"
               min="0"
               step="0.01"
               value={thresholdValue}
               onChange={(e) => setThresholdValue(e.target.value)}
-              placeholder="예: 70000"
+              placeholder={selectedCondition.placeholder}
             />
           </label>
           <label>
