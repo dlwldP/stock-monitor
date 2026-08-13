@@ -16,7 +16,7 @@
 | DB 접근 | Spring Data JPA (Hibernate) |
 | 스케줄러 | Spring `@Scheduled` (시세 폴링 · 알림 조건 평가) |
 | 프론트엔드 | React + TypeScript + Vite |
-| 알림 채널 | Discord Webhook, Email(SMTP), 인앱 알림 (채널 인터페이스로 추상화) |
+| 알림 채널 | Discord Webhook, 인앱 알림 구현됨. Email은 채널 인터페이스만 있고 2단계에서 구현 예정 |
 
 ## 레포 구조
 
@@ -60,8 +60,22 @@ npm run dev
 | `TOSS_CLIENT_ID` | 토스증권 Open API client ID |
 | `TOSS_CLIENT_SECRET` | 토스증권 Open API client secret |
 
-값은 설정하지 않았습니다 — 프로젝트 구현이 끝난 뒤 직접 채워 넣을 예정입니다. 로컬에서 필요하면 `TOSS_CLIENT_ID=... TOSS_CLIENT_SECRET=... ./gradlew bootRun`처럼 실행 시 주입하거나, gitignore된 `application-local.yml`을 만들어 사용하세요.
+알림 규칙에서 디스코드 채널을 켜면 다음 변수도 필요합니다:
 
-## 현재 상태
+| 변수 | 설명 |
+|---|---|
+| `DISCORD_WEBHOOK_URL` | 알림을 보낼 디스코드 채널의 Incoming Webhook URL |
 
-프로젝트 스캐폴딩 단계입니다. 백엔드는 빌드/구동 가능한 최소 골격(헬스체크 API, CORS 설정)만 있고, 프론트엔드는 백엔드 연결을 확인하는 placeholder 화면만 있습니다. 다음 단계(1단계 MVP 범위)는 [`docs/PLANNING.md`](docs/PLANNING.md#10-개발-로드맵)의 로드맵을 따릅니다.
+값은 설정하지 않았습니다 — 필요할 때 직접 채워 넣으세요. 설정하지 않은 채로 디스코드 채널을 쓰는 알림 규칙이 발동하면, 알림 히스토리에 실패 사유("DISCORD_WEBHOOK_URL이 설정되어 있지 않습니다")가 그대로 기록됩니다 (다른 채널은 정상 발송).
+
+## 현재 상태 (1단계 MVP)
+
+- **토스증권 연동**: 실제 API 문서가 없어 `TossApiClient` 인터페이스만 확정하고, `MockTossApiClient`(랜덤워크 가상 시세)로 나머지 기능을 개발했습니다. 실제 엔드포인트 스펙이 확보되면 `TossApiClient`를 구현하는 새 빈으로 교체하면 됩니다 — 호출부(서비스/컨트롤러)는 수정할 필요가 없습니다.
+- **관심종목**: 추가/삭제/목록 조회 (`/api/watchlist`), 실시간(모의) 시세·등락률 포함
+- **알림 규칙**: 목표가 이상/이하 도달 조건, 디스코드+인앱 채널, 쿨다운, 활성/비활성 토글, 생성/삭제 (`/api/alert-rules`)
+- **스케줄러**: 60초 주기로 활성 규칙을 평가하고 조건 충족 시 알림 발송 (`PriceAlertScheduler`)
+- **알림 히스토리**: 채널별 발송 성공/실패 로그 (`/api/alert-logs`)
+- **대시보드**: 자산 요약 + 보유종목 (`/api/dashboard`), 관심종목, 알림 규칙 관리, 최근 알림 미리보기를 한 화면에서 확인
+- **미구현 (2단계 예정)**: 이메일 채널, 등락률/거래량 급증/52주 신고가·신저가 조건, 캔들 차트, 실제 토스증권 연동, 다중 사용자
+
+로컬에서 백엔드+프론트엔드를 함께 띄우면(위 "시작하기" 참고) `http://localhost:5173`에서 전체 대시보드를 확인할 수 있습니다.

@@ -15,6 +15,7 @@ backend/build/
 HELP.md
 
 # H2 local database files
+backend/data/
 *.mv.db
 *.trace.db
 *.lock.db

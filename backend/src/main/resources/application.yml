@@ -29,11 +29,21 @@ server:
 
 # Toss Securities Open API credentials. Left blank on purpose -
 # provided via environment variables, never committed. See README.
+# Unused for now: MockTossApiClient is the only TossApiClient bean until
+# the real endpoint spec is available (see docs/PLANNING.md section 5).
 toss:
   api:
     base-url: https://openapi.tossinvest.com
     client-id: ${TOSS_CLIENT_ID:}
     client-secret: ${TOSS_CLIENT_SECRET:}
+
+notification:
+  discord-webhook-url: ${DISCORD_WEBHOOK_URL:}
+
+scheduler:
+  price-poll:
+    fixed-delay-ms: 60000
+    initial-delay-ms: 10000
 
 logging:
   level:
