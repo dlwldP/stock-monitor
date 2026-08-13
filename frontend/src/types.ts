@@ -78,3 +78,19 @@ export interface PageResponse<T> {
   totalElements: number
   totalPages: number
 }
+
+export interface Candle {
+  date: string
+  open: number
+  high: number
+  low: number
+  close: number
+  volume: number
+}
+
+export interface AccountSnapshot {
+  snapshotAt: string
+  totalValue: number
+  dailyPnl: number
+  dailyPnlRate: number
+}

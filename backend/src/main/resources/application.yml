@@ -61,6 +61,15 @@ scheduler:
   price-poll:
     fixed-delay-ms: 60000
     initial-delay-ms: 10000
+  # "자산 추이" trend chart data points. Short by default so local dev/demo sees
+  # movement quickly; a real deployment would set this closer to once a day.
+  snapshot:
+    fixed-delay-ms: 900000
+    initial-delay-ms: 5000
+
+digest:
+  enabled: true
+  cron: "0 0 8 * * *"
 
 logging:
   level:

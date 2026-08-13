@@ -4,8 +4,11 @@ import com.stockmonitor.domain.Market;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Instant;
+import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Random;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ThreadLocalRandom;
 import org.springframework.stereotype.Component;
@@ -37,17 +40,7 @@ public class MockTossApiClient implements TossApiClient {
 
 	@Override
 	public Quote getQuote(String symbol, Market market) {
-		PriceState state = prices.computeIfAbsent(symbol, s -> {
-			BigDecimal seed = SEED_PRICES.getOrDefault(s, seedFromHash(s, market));
-			int scale = scaleFor(market);
-			return new PriceState(
-					seed,
-					seed,
-					seed.multiply(new BigDecimal("1.25")).setScale(scale, RoundingMode.HALF_UP),
-					seed.multiply(new BigDecimal("0.75")).setScale(scale, RoundingMode.HALF_UP),
-					// stable per-symbol baseline volume, independent of the random walk below
-					500_000L + Math.abs((s + market).hashCode()) % 2_000_000L);
-		});
+		PriceState state = stateFor(symbol, market);
 
 		BigDecimal current;
 		synchronized (state) {
@@ -92,6 +85,46 @@ public class MockTossApiClient implements TossApiClient {
 	@Override
 	public List<Holding> getHoldings() {
 		return MOCK_HOLDINGS;
+	}
+
+	@Override
+	public List<Candle> getDailyCandles(String symbol, Market market, int days) {
+		PriceState state = stateFor(symbol, market);
+		int scale = scaleFor(market);
+
+		// Deterministic per symbol so repeated requests render the same chart, independent
+		// of the live random-walk state used by getQuote.
+		Random rnd = new Random((symbol + market).hashCode());
+		BigDecimal price = state.previousClose;
+		LocalDate date = LocalDate.now().minusDays(days);
+
+		List<Candle> candles = new ArrayList<>(days);
+		for (int i = 0; i < days; i++) {
+			date = date.plusDays(1);
+			BigDecimal open = price;
+			double stepPct = (rnd.nextDouble() - 0.5) * 0.04; // +/-2% per day
+			BigDecimal close = open.multiply(BigDecimal.valueOf(1 + stepPct)).setScale(scale, RoundingMode.HALF_UP);
+			BigDecimal high = open.max(close).multiply(BigDecimal.valueOf(1 + rnd.nextDouble() * 0.01)).setScale(scale, RoundingMode.HALF_UP);
+			BigDecimal low = open.min(close).multiply(BigDecimal.valueOf(1 - rnd.nextDouble() * 0.01)).setScale(scale, RoundingMode.HALF_UP);
+			long volume = state.avgVolume / 2 + (long) (rnd.nextDouble() * state.avgVolume);
+			candles.add(new Candle(date, open, high, low, close, volume));
+			price = close;
+		}
+		return candles;
+	}
+
+	private PriceState stateFor(String symbol, Market market) {
+		return prices.computeIfAbsent(symbol, s -> {
+			BigDecimal seed = SEED_PRICES.getOrDefault(s, seedFromHash(s, market));
+			int scale = scaleFor(market);
+			return new PriceState(
+					seed,
+					seed,
+					seed.multiply(new BigDecimal("1.25")).setScale(scale, RoundingMode.HALF_UP),
+					seed.multiply(new BigDecimal("0.75")).setScale(scale, RoundingMode.HALF_UP),
+					// stable per-symbol baseline volume, independent of the random walk below
+					500_000L + Math.abs((s + market).hashCode()) % 2_000_000L);
+		});
 	}
 
 	private static BigDecimal seedFromHash(String symbol, Market market) {

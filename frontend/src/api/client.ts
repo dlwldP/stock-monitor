@@ -1,9 +1,11 @@
 import type {
+  AccountSnapshot,
   AlertChannel,
   AlertLog,
   AlertLogStatus,
   AlertRule,
   ApiErrorBody,
+  Candle,
   DashboardResponse,
   Market,
   PageResponse,
@@ -41,6 +43,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const api = {
   getDashboard: () => request<DashboardResponse>('/api/dashboard'),
+  getAccountHistory: (limit = 90) => request<AccountSnapshot[]>(`/api/dashboard/history?limit=${limit}`),
+  getCandles: (symbol: string, market: Market, days = 60) =>
+    request<Candle[]>(`/api/candles?symbol=${encodeURIComponent(symbol)}&market=${market}&days=${days}`),
 
   getWatchlist: () => request<WatchlistItem[]>('/api/watchlist'),
   addWatchlistItem: (body: { symbol: string; market: Market; displayName?: string }) =>

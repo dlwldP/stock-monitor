@@ -274,6 +274,24 @@ button.link {
   color: #d0362c;
 }
 
+.chart-gridline {
+  stroke: var(--border);
+  stroke-width: 1;
+}
+
+.chart-axis-label {
+  font-size: 11px;
+  fill: var(--text);
+}
+
+.chart-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 1rem;
+  flex-wrap: wrap;
+}
+
 .pagination {
   display: flex;
   align-items: center;

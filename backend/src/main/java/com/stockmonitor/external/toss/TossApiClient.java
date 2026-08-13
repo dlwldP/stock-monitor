@@ -23,4 +23,7 @@ public interface TossApiClient {
 
 	/** Currently held positions. */
 	List<Holding> getHoldings();
+
+	/** Daily OHLCV bars, oldest first, for the candlestick chart. */
+	List<Candle> getDailyCandles(String symbol, Market market, int days);
 }

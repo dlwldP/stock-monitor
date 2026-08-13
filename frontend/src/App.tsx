@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import './App.css'
 import { api } from './api/client'
 import { AlertHistoryPage } from './components/AlertHistoryPage'
@@ -6,19 +6,22 @@ import { AlertLogPreview } from './components/AlertLogPreview'
 import { AlertRuleForm } from './components/AlertRuleForm'
 import { AlertRuleList } from './components/AlertRuleList'
 import { AssetSummaryCard } from './components/AssetSummaryCard'
+import { AssetTrendChart } from './components/AssetTrendChart'
+import { ChartsPage, type ChartSymbolOption } from './components/ChartsPage'
 import { HoldingsTable } from './components/HoldingsTable'
 import { WatchlistPanel } from './components/WatchlistPanel'
-import type { AccountSummary, AlertLog, AlertRule, Holding, Market, WatchlistItem } from './types'
+import type { AccountSnapshot, AccountSummary, AlertLog, AlertRule, Holding, Market, WatchlistItem } from './types'
 
 const REFRESH_INTERVAL_MS = 30_000
 
 type BackendStatus = 'checking' | 'ok' | 'unreachable'
-type View = 'dashboard' | 'history'
+type View = 'dashboard' | 'charts' | 'history'
 
 function App() {
   const [view, setView] = useState<View>('dashboard')
   const [backendStatus, setBackendStatus] = useState<BackendStatus>('checking')
   const [accountSummary, setAccountSummary] = useState<AccountSummary | null>(null)
+  const [accountHistory, setAccountHistory] = useState<AccountSnapshot[]>([])
   const [holdings, setHoldings] = useState<Holding[]>([])
   const [watchlist, setWatchlist] = useState<WatchlistItem[]>([])
   const [alertRules, setAlertRules] = useState<AlertRule[]>([])
@@ -28,14 +31,16 @@ function App() {
 
   const refresh = useCallback(async () => {
     try {
-      const [dashboard, watchlistItems, rules, logs] = await Promise.all([
+      const [dashboard, history, watchlistItems, rules, logs] = await Promise.all([
         api.getDashboard(),
+        api.getAccountHistory(90),
         api.getWatchlist(),
         api.getAlertRules(),
         api.getRecentAlertLogs(10),
       ])
       setAccountSummary(dashboard.accountSummary)
       setHoldings(dashboard.holdings)
+      setAccountHistory(history)
       setWatchlist(watchlistItems)
       setAlertRules(rules)
       setAlertLogs(logs)
@@ -50,6 +55,20 @@ function App() {
     const interval = setInterval(refresh, REFRESH_INTERVAL_MS)
     return () => clearInterval(interval)
   }, [refresh])
+
+  const chartOptions: ChartSymbolOption[] = useMemo(() => {
+    const bySymbol = new Map<string, ChartSymbolOption>()
+    for (const h of holdings) {
+      bySymbol.set(`${h.market}:${h.symbol}`, { symbol: h.symbol, market: h.market, label: `${h.name} (${h.symbol})` })
+    }
+    for (const w of watchlist) {
+      const key = `${w.market}:${w.symbol}`
+      if (!bySymbol.has(key)) {
+        bySymbol.set(key, { symbol: w.symbol, market: w.market, label: `${w.displayName || w.symbol} (${w.symbol})` })
+      }
+    }
+    return [...bySymbol.values()]
+  }, [holdings, watchlist])
 
   function flashBanner(message: string) {
     setBanner(message)
@@ -90,6 +109,9 @@ function App() {
           <button type="button" className={view === 'dashboard' ? 'active' : ''} onClick={() => setView('dashboard')}>
             대시보드
           </button>
+          <button type="button" className={view === 'charts' ? 'active' : ''} onClick={() => setView('charts')}>
+            차트
+          </button>
           <button type="button" className={view === 'history' ? 'active' : ''} onClick={() => setView('history')}>
             알림 히스토리
           </button>
@@ -109,9 +131,13 @@ function App() {
         </p>
       )}
 
-      {view === 'dashboard' ? (
+      {view === 'dashboard' && (
         <>
           {accountSummary && <AssetSummaryCard summary={accountSummary} />}
+          <section className="card">
+            <h2>자산 추이</h2>
+            <AssetTrendChart snapshots={accountHistory} />
+          </section>
           <HoldingsTable holdings={holdings} />
           <WatchlistPanel
             items={watchlist}
@@ -132,9 +158,10 @@ function App() {
           <AlertRuleList rules={alertRules} onToggleActive={handleToggleAlertRule} onDelete={handleDeleteAlertRule} />
           <AlertLogPreview logs={alertLogs} />
         </>
-      ) : (
-        <AlertHistoryPage />
       )}
+
+      {view === 'charts' && <ChartsPage options={chartOptions} />}
+      {view === 'history' && <AlertHistoryPage />}
     </main>
   )
 }
