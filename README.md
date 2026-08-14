@@ -1,4 +1,4 @@
-# TossWatch (stock-monitor)
+# stock-monitor
 
 토스증권 Open API를 연동해 **관심종목 알림**과 **자산 대시보드**를 한 서비스에서 제공하는 프로젝트.
 
