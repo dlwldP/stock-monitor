@@ -1,8 +1,11 @@
 package com.stockmonitor.external.toss;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.stockmonitor.config.TossApiProperties;
+import java.io.IOException;
 import java.time.Instant;
+import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.util.LinkedMultiValueMap;
@@ -11,16 +14,9 @@ import org.springframework.web.client.RestClient;
 
 /**
  * OAuth 2.0 client-credentials token management for the Toss Securities Open API
- * (docs/PLANNING.md section 5): {@code POST /oauth2/token}, ~1 hour expiry, auto-refresh
- * before it lapses. This part follows the documented spec fairly literally and is the
- * piece most likely to be correct as-is; {@link TossHttpApiClient}'s actual data
- * endpoints are the ones that need verifying once real docs are available.
- *
- * <p>Assumes a standard OAuth2 client-credentials token response
- * ({@code access_token}/{@code token_type}/{@code expires_in}, RFC 6749) sent as
- * {@code application/x-www-form-urlencoded}. Adjust {@link #fetchToken()} if the real
- * API differs (e.g. JSON body, different field names, Basic-auth for client
- * credentials instead of form fields).
+ * (confirmed against https://developers.tossinvest.com/docs "시작하기" section):
+ * {@code POST /oauth2/token}, form-urlencoded {@code grant_type=client_credentials}
+ * + {@code client_id} + {@code client_secret}, auto-refreshed before it expires.
  */
 public class TossOAuthTokenProvider {
 
@@ -29,12 +25,14 @@ public class TossOAuthTokenProvider {
 	private static final int READ_TIMEOUT_MS = 10_000;
 
 	private final TossApiProperties properties;
+	private final ObjectMapper objectMapper;
 	private final RestClient restClient;
 
 	private volatile CachedToken cached;
 
-	public TossOAuthTokenProvider(TossApiProperties properties) {
+	public TossOAuthTokenProvider(TossApiProperties properties, ObjectMapper objectMapper) {
 		this.properties = properties;
+		this.objectMapper = objectMapper;
 
 		SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
 		requestFactory.setConnectTimeout(CONNECT_TIMEOUT_MS);
@@ -61,6 +59,15 @@ public class TossOAuthTokenProvider {
 				.contentType(MediaType.APPLICATION_FORM_URLENCODED)
 				.body(form)
 				.retrieve()
+				.onStatus(HttpStatusCode::isError, (request, httpResponse) -> {
+					int status = httpResponse.getStatusCode().value();
+					try {
+						TossErrorEnvelope envelope = objectMapper.readValue(httpResponse.getBody(), TossErrorEnvelope.class);
+						throw new TossApiException(status, envelope.error().code(), envelope.error().message(), envelope.error().requestId());
+					} catch (IOException e) {
+						throw new TossApiException(status, "unknown", "토큰 발급 에러 응답을 파싱할 수 없습니다: " + e.getMessage(), null);
+					}
+				})
 				.body(TokenResponse.class);
 
 		if (response == null || response.accessToken() == null) {

@@ -57,8 +57,9 @@ npm run dev
 
 | 변수 | 설명 |
 |---|---|
-| `TOSS_CLIENT_ID` | 토스증권 Open API client ID |
+| `TOSS_CLIENT_ID` | 토스증권 Open API client ID (WTS 설정 > Open API 메뉴에서 발급) |
 | `TOSS_CLIENT_SECRET` | 토스증권 Open API client secret |
+| `TOSS_ACCOUNT_SEQ` | 계좌·자산/주문 API에 필요한 `X-Tossinvest-Account` 헤더 값. `GET /api/v1/accounts`로 계좌 목록 조회 후 확인 |
 | `TOSS_API_USE_REAL_CLIENT` | `true`로 설정하면 `MockTossApiClient` 대신 실제 API를 호출하는 `TossHttpApiClient`를 사용 (기본값 `false`) |
 
 `TOSS_API_USE_REAL_CLIENT`는 **키를 넣어도 자동으로 켜지지 않습니다.** 아래 "토스증권 실연동" 절을 먼저 읽어보세요.
@@ -77,20 +78,26 @@ npm run dev
 
 ## 토스증권 실연동
 
-`TossApiClient` 인터페이스 뒤에 두 구현체가 있습니다:
+공식 문서([developers.tossinvest.com/docs](https://developers.tossinvest.com/docs))를 확인해서 반영했습니다. `TossApiClient` 인터페이스 뒤에 두 구현체가 있습니다:
 
-- `MockTossApiClient` — 기본값. 실제 API 문서가 없어서 지금까지 전 기능을 이걸로 개발/검증했습니다.
-- `TossHttpApiClient` — OAuth2 client-credentials 인증(`POST /oauth2/token`, 토큰 자동 갱신)까지는 `docs/PLANNING.md` 5절 스펙대로 구현했지만, **실제 시세/계좌 엔드포인트 경로와 응답 필드명은 검증되지 않은 추측**입니다 (`TossHttpApiClient.java` 상단 Javadoc 참고). 공식 문서가 없는 상태라 어쩔 수 없이 REST 관례대로 짜놨을 뿐이라, API 키를 넣는다고 바로 동작한다고 보장 못 합니다.
+- `MockTossApiClient` — 기본값. 랜덤워크 가상 시세로 전 기능을 개발/검증했습니다.
+- `TossHttpApiClient` — 아래처럼 문서 기준으로 구현했습니다:
+  - **확정된 부분**: base URL(`https://openapi.tossinvest.com`), OAuth2 client-credentials 인증(`POST /oauth2/token`, form-urlencoded), 계좌·자산 API에 필요한 `X-Tossinvest-Account` 헤더, 에러 응답 포맷(`{"error":{"requestId","code","message","data"}}` → `TossApiException`), 429 레이트리밋 시 `Retry-After` 존중해서 1회 재시도. 시세·종목정보 API는 계좌와 무관해서 토큰만 있으면 호출 가능합니다.
+  - **엔드포인트 경로도 확정**: 시세 `GET /api/v1/prices`, 캔들 `GET /api/v1/candles`, 보유종목 `GET /api/v1/holdings`.
+  - **아직 미확정**: 위 세 엔드포인트의 **정확한 응답 필드명**(요청 파라미터명도 일부 추정). 문서 목록 페이지에는 엔드포인트만 나열되어 있고, 각 엔드포인트의 상세 요청/응답 스키마 페이지는 아직 못 봤습니다. `TossHttpApiClient.java`의 `QuoteDto`/`CandleDto`/`HoldingDto`가 그 부분이고, 클래스 상단 Javadoc에 정리해뒀습니다. 그 페이지들을 붙여넣어 주시면 마저 고치겠습니다.
+  - **계좌 요약(총 평가금액/손익)** 은 별도 엔드포인트가 문서에 없어서, 보유종목 목록 + 종목별 시세를 클라이언트에서 합산하는 방식으로 구현했습니다 (Mock과 동일한 방식).
 
-그래서 `TOSS_CLIENT_ID`/`TOSS_CLIENT_SECRET`을 넣어도 `TOSS_API_USE_REAL_CLIENT=true`로 **직접 켜기 전까지는** 계속 Mock이 서빙합니다 (`TossApiClientConfig`가 빈을 갈아끼움). 순서 제안:
+`TOSS_CLIENT_ID`/`TOSS_CLIENT_SECRET`을 넣어도 `TOSS_API_USE_REAL_CLIENT=true`로 **직접 켜기 전까지는** 계속 Mock이 서빙합니다 (`TossApiClientConfig`가 빈을 갈아끼움). 순서 제안:
 
-1. 키를 넣고 `TOSS_API_USE_REAL_CLIENT=true`로 켠 뒤, `POST /api/toss/verify-connection`으로 OAuth 토큰 발급만 먼저 확인하세요 (데이터 엔드포인트는 안 건드립니다).
-2. 토큰 발급이 성공하면, 실제 토스증권 API 문서를 보고 `TossHttpApiClient`의 `QUOTE_PATH`/`CANDLES_PATH`/`ACCOUNT_SUMMARY_PATH`/`HOLDINGS_PATH`와 각 DTO의 필드명을 실제 스펙에 맞게 고치세요.
-3. 그 다음 대시보드/관심종목 등 나머지 기능을 실 데이터로 확인하세요.
+1. WTS **설정 > Open API** 메뉴에서 `client_id`/`client_secret` 발급, **허용 IP** 목록에 서버 IP 등록 (미등록 IP는 403).
+2. 키를 넣고 `TOSS_API_USE_REAL_CLIENT=true`로 켠 뒤, `POST /api/toss/verify-connection`으로 OAuth 토큰 발급만 먼저 확인하세요 (데이터 엔드포인트는 안 건드립니다).
+3. `GET /api/v1/accounts`로 계좌 목록을 조회해 `accountSeq`를 확인하고 `TOSS_ACCOUNT_SEQ`로 설정하세요.
+4. `QuoteDto`/`CandleDto`/`HoldingDto` 필드명을 실제 응답에 맞게 고치세요 (postman이나 curl로 실제 응답을 한 번 찍어보는 게 제일 빠릅니다).
+5. 그 다음 대시보드/관심종목 등 나머지 기능을 실 데이터로 확인하세요.
 
 ## 현재 상태 (1~3단계)
 
-- **토스증권 연동**: 위 "토스증권 실연동" 절 참고. `MockTossApiClient`(랜덤워크 가상 시세, 52주 고저·평균거래량·60일 캔들 포함)가 기본이고, `TossHttpApiClient`는 OAuth만 스펙대로, 데이터 엔드포인트는 추측 상태입니다. 어느 쪽이든 호출부(서비스/컨트롤러)는 수정할 필요가 없습니다.
+- **토스증권 연동**: 위 "토스증권 실연동" 절 참고. `MockTossApiClient`(랜덤워크 가상 시세, 52주 고저·평균거래량·60일 캔들 포함)가 기본이고, `TossHttpApiClient`는 인증/경로/에러처리는 문서 기준으로 확정, 응답 필드 매핑만 남았습니다. 어느 쪽이든 호출부(서비스/컨트롤러)는 수정할 필요가 없습니다.
 - **관심종목**: 추가/삭제/목록 조회 (`/api/watchlist`), 실시간(모의) 시세·등락률 포함
 - **알림 규칙**: 목표가 이상/이하, 등락률(±N%), 거래량 급증(평균 대비 N배), 52주 신고가/신저가 근접 — 6가지 조건 × 디스코드/이메일/인앱 채널, 쿨다운, 활성/비활성 토글, 생성/삭제 (`/api/alert-rules`)
 - **스케줄러**: 60초 주기로 활성 규칙을 평가하고 조건 충족 시 알림 발송 (`PriceAlertScheduler`)
