@@ -45,13 +45,17 @@ server:
 
 # Toss Securities Open API credentials. Left blank on purpose -
 # provided via environment variables, never committed. See README.
-# Unused for now: MockTossApiClient is the only TossApiClient bean until
-# the real endpoint spec is available (see docs/PLANNING.md section 5).
+# use-real-client stays false until TossHttpApiClient's response DTOs (see its
+# Javadoc) have been checked against real docs - see TossApiClientConfig.
 toss:
   api:
     base-url: https://openapi.tossinvest.com
     client-id: ${TOSS_CLIENT_ID:}
     client-secret: ${TOSS_CLIENT_SECRET:}
+    # X-Tossinvest-Account header value for Account/Asset calls (GET /api/v1/accounts
+    # to find it once real credentials work - see TossApiProperties).
+    account-seq: ${TOSS_ACCOUNT_SEQ:}
+    use-real-client: ${TOSS_API_USE_REAL_CLIENT:false}
 
 notification:
   discord-webhook-url: ${DISCORD_WEBHOOK_URL:}
