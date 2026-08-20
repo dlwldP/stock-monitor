@@ -9,6 +9,7 @@ import type {
   DashboardResponse,
   Market,
   PageResponse,
+  SettingsStatus,
   WatchlistItem,
 } from '../types'
 
@@ -77,4 +78,6 @@ export const api = {
   getUnreadAlertCount: () => request<{ unread: number }>('/api/alert-logs/unread-count'),
   markAlertLogRead: (id: number) => request<AlertLog>(`/api/alert-logs/${id}/read`, { method: 'PATCH' }),
   markAllAlertLogsRead: () => request<void>('/api/alert-logs/mark-all-read', { method: 'POST' }),
+
+  getSettingsStatus: () => request<SettingsStatus>('/api/settings/status'),
 }
