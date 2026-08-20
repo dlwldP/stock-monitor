@@ -39,6 +39,7 @@ cd backend
 - 기본 포트: `8080`
 - 로컬 DB: H2 파일모드 (`backend/data/`, 최초 실행 시 자동 생성, git에는 포함되지 않음)
 - 헬스체크: `GET http://localhost:8080/api/health`
+- 테스트: `./gradlew test` (도메인 로직·서비스·스케줄러·알림 디스패처 단위 테스트, Mockito 기반)
 
 ### 프론트엔드
 
@@ -76,6 +77,16 @@ npm run dev
 
 값은 설정하지 않았습니다 — 필요할 때 직접 채워 넣으세요. 설정하지 않은 채로 해당 채널을 쓰는 알림 규칙이 발동하면, 알림 히스토리에 실패 사유(예: "DISCORD_WEBHOOK_URL이 설정되어 있지 않습니다")가 그대로 기록됩니다 (다른 채널은 정상 발송). 다이제스트는 알림 규칙에 안 묶여 있어서 실패해도 로그에만 남고 조용히 스킵됩니다.
 
+### 배포 전에 확인할 것
+
+로컬 개발용 기본값이 실제 배포에는 안전하지 않은 부분들입니다. 외부에서 접근 가능한 곳에 띄우기 전에 확인하세요:
+
+| 변수 | 기본값 | 설명 |
+|---|---|---|
+| `CORS_ALLOWED_ORIGINS` | `http://localhost:5173` | API를 호출할 프론트엔드 origin (콤마로 여러 개 가능). 배포된 프론트엔드 도메인으로 바꿔야 함 |
+| `H2_CONSOLE_ENABLED` | `true` | `/h2-console`(DB 브라우저) 노출 여부. 외부에서 접근 가능한 서버라면 `false`로 |
+| `LOG_LEVEL` | `debug` | `com.stockmonitor` 패키지 로그 레벨. 운영에서는 `info` 권장 |
+
 ## 토스증권 실연동
 
 공식 문서([developers.tossinvest.com/docs](https://developers.tossinvest.com/docs))를 확인해서 반영했습니다. `TossApiClient` 인터페이스 뒤에 두 구현체가 있습니다:
@@ -101,7 +112,7 @@ npm run dev
 - **관심종목**: 추가/삭제/목록 조회 (`/api/watchlist`), 실시간(모의) 시세·등락률 포함
 - **알림 규칙**: 목표가 이상/이하, 등락률(±N%), 거래량 급증(평균 대비 N배), 52주 신고가/신저가 근접 — 6가지 조건 × 디스코드/이메일/인앱 채널, 쿨다운, 활성/비활성 토글, 생성/삭제 (`/api/alert-rules`)
 - **스케줄러**: 60초 주기로 활성 규칙을 평가하고 조건 충족 시 알림 발송 (`PriceAlertScheduler`)
-- **알림 히스토리**: 대시보드에는 최근 알림 미리보기(`/api/alert-logs/recent`), 전용 화면에는 채널/상태 필터 + 페이지네이션을 갖춘 전체 히스토리(`/api/alert-logs`)
+- **알림 히스토리**: 대시보드에는 최근 알림 미리보기(`/api/alert-logs/recent`), 전용 화면에는 채널/상태 필터 + 페이지네이션을 갖춘 전체 히스토리(`/api/alert-logs`). 인앱 알림은 읽음/안읽음 상태를 관리하고(`/api/alert-logs/unread-count`, `PATCH .../{id}/read`, `POST .../mark-all-read`) 탭에 안읽음 뱃지로 표시
 - **캔들 차트**: 관심종목/보유종목 선택 후 일봉 캔들 차트 확인 (`/api/candles`, 별도 차트 라이브러리 없이 자체 SVG 렌더링)
 - **자산 추이 그래프**: `AccountSnapshotScheduler`가 주기적으로(기본 15분, 로컬 데모용으로 짧게 잡음) 자산 총액을 저장하고 (`/api/dashboard/history`), 대시보드에 라인 차트로 표시
 - **다이제스트 알림**: 매일 08:00(설정 가능)에 그날 발송된 알림 요약 + 현재 자산현황을 이메일로 발송 (`DigestScheduler`), 테스트용으로 `POST /api/digest/send-now`도 있음

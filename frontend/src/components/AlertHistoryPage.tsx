@@ -3,6 +3,10 @@ import { api } from '../api/client'
 import type { AlertChannel, AlertLog, AlertLogStatus } from '../types'
 import { formatDateTime } from '../format'
 
+interface Props {
+  onUnreadCountChange?: () => void
+}
+
 const CHANNEL_FILTERS: { value: AlertChannel | ''; label: string }[] = [
   { value: '', label: '전체 채널' },
   { value: 'DISCORD', label: '디스코드' },
@@ -18,7 +22,7 @@ const STATUS_FILTERS: { value: AlertLogStatus | ''; label: string }[] = [
 
 const PAGE_SIZE = 20
 
-export function AlertHistoryPage() {
+export function AlertHistoryPage({ onUnreadCountChange }: Props) {
   const [channel, setChannel] = useState<AlertChannel | ''>('')
   const [status, setStatus] = useState<AlertLogStatus | ''>('')
   const [page, setPage] = useState(0)
@@ -27,6 +31,7 @@ export function AlertHistoryPage() {
   const [totalElements, setTotalElements] = useState(0)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [reloadKey, setReloadKey] = useState(0)
 
   useEffect(() => {
     let cancelled = false
@@ -50,7 +55,7 @@ export function AlertHistoryPage() {
     return () => {
       cancelled = true
     }
-  }, [channel, status, page])
+  }, [channel, status, page, reloadKey])
 
   function handleChannelChange(value: AlertChannel | '') {
     setChannel(value)
@@ -62,9 +67,35 @@ export function AlertHistoryPage() {
     setPage(0)
   }
 
+  async function handleRowClick(log: AlertLog) {
+    if (log.read) return
+    setLogs((prev) => prev.map((l) => (l.id === log.id ? { ...l, read: true } : l)))
+    try {
+      await api.markAlertLogRead(log.id)
+      onUnreadCountChange?.()
+    } catch {
+      setLogs((prev) => prev.map((l) => (l.id === log.id ? { ...l, read: false } : l)))
+    }
+  }
+
+  async function handleMarkAllRead() {
+    try {
+      await api.markAllAlertLogsRead()
+      setReloadKey((k) => k + 1)
+      onUnreadCountChange?.()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '모두 읽음 처리에 실패했습니다.')
+    }
+  }
+
   return (
     <section className="card">
-      <h2>알림 히스토리</h2>
+      <div className="card-header">
+        <h2>알림 히스토리</h2>
+        <button type="button" className="link" onClick={handleMarkAllRead}>
+          인앱 알림 모두 읽음
+        </button>
+      </div>
 
       <div className="inline-form">
         <select value={channel} onChange={(e) => handleChannelChange(e.target.value as AlertChannel | '')}>
@@ -101,7 +132,12 @@ export function AlertHistoryPage() {
           </thead>
           <tbody>
             {logs.map((log) => (
-              <tr key={log.id}>
+              <tr
+                key={log.id}
+                className={!log.read ? 'row-unread' : undefined}
+                onClick={() => handleRowClick(log)}
+                title={!log.read ? '클릭하면 읽음으로 표시됩니다' : undefined}
+              >
                 <td className="muted">{formatDateTime(log.triggeredAt)}</td>
                 <td>{log.symbol}</td>
                 <td>{log.channel}</td>

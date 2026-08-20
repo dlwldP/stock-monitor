@@ -8,6 +8,7 @@ import java.util.List;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -17,6 +18,13 @@ public interface AlertLogRepository extends JpaRepository<AlertLog, Long> {
 
 	/** Backs the daily digest email — everything triggered since local midnight. */
 	List<AlertLog> findAllByTriggeredAtAfterOrderByTriggeredAtDesc(Instant since);
+
+	/** Unread count for the in-app notification badge (see AlertLog.read). */
+	long countByChannelAndReadFalse(AlertChannel channel);
+
+	@Modifying
+	@Query("UPDATE AlertLog a SET a.read = true WHERE a.channel = :channel AND a.read = false")
+	int markAllReadByChannel(@Param("channel") AlertChannel channel);
 
 	/** Either filter may be null, meaning "any" — backs the 알림 히스토리 screen's channel/status filters. */
 	@Query("""

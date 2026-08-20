@@ -52,6 +52,14 @@ public class AlertLog {
 	@Lob
 	private String message;
 
+	/**
+	 * Read/unread state for the in-app notification store (docs/PLANNING.md section 6's
+	 * "인앱 어댑터: DB에 읽음/안읽음 상태로 기록"). Meaningful for {@link AlertChannel#INAPP}
+	 * rows; other channels just carry it along unused.
+	 */
+	@Column(nullable = false)
+	private boolean read = false;
+
 	public AlertLog(AlertRule alertRule, Instant triggeredAt, AlertChannel channel, AlertLogStatus status, String message) {
 		this.alertRule = alertRule;
 		this.triggeredAt = triggeredAt;
