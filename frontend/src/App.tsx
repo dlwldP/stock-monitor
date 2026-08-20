@@ -20,14 +20,20 @@ type View = 'dashboard' | 'charts' | 'history'
 function App() {
   const [view, setView] = useState<View>('dashboard')
   const [backendStatus, setBackendStatus] = useState<BackendStatus>('checking')
+  const [hasLoadedOnce, setHasLoadedOnce] = useState(false)
   const [accountSummary, setAccountSummary] = useState<AccountSummary | null>(null)
   const [accountHistory, setAccountHistory] = useState<AccountSnapshot[]>([])
   const [holdings, setHoldings] = useState<Holding[]>([])
   const [watchlist, setWatchlist] = useState<WatchlistItem[]>([])
   const [alertRules, setAlertRules] = useState<AlertRule[]>([])
   const [alertLogs, setAlertLogs] = useState<AlertLog[]>([])
+  const [unreadCount, setUnreadCount] = useState(0)
   const [alertFormTarget, setAlertFormTarget] = useState<{ symbol: string; market: Market } | null>(null)
   const [banner, setBanner] = useState<string | null>(null)
+
+  const refreshUnreadCount = useCallback(() => {
+    api.getUnreadAlertCount().then((res) => setUnreadCount(res.unread)).catch(() => {})
+  }, [])
 
   const refresh = useCallback(async () => {
     try {
@@ -45,10 +51,12 @@ function App() {
       setAlertRules(rules)
       setAlertLogs(logs)
       setBackendStatus('ok')
+      setHasLoadedOnce(true)
+      refreshUnreadCount()
     } catch {
       setBackendStatus('unreachable')
     }
-  }, [])
+  }, [refreshUnreadCount])
 
   useEffect(() => {
     refresh()
@@ -101,6 +109,16 @@ function App() {
     await refresh()
   }
 
+  async function handleMarkLogRead(id: number) {
+    setAlertLogs((prev) => prev.map((l) => (l.id === id ? { ...l, read: true } : l)))
+    try {
+      await api.markAlertLogRead(id)
+      refreshUnreadCount()
+    } catch {
+      setAlertLogs((prev) => prev.map((l) => (l.id === id ? { ...l, read: false } : l)))
+    }
+  }
+
   return (
     <main className="dashboard">
       <header className="dashboard-header">
@@ -114,6 +132,7 @@ function App() {
           </button>
           <button type="button" className={view === 'history' ? 'active' : ''} onClick={() => setView('history')}>
             알림 히스토리
+            {unreadCount > 0 && <span className="nav-badge">{unreadCount > 99 ? '99+' : unreadCount}</span>}
           </button>
         </nav>
         <span className={`status status-${backendStatus}`}>
@@ -138,9 +157,10 @@ function App() {
             <h2>자산 추이</h2>
             <AssetTrendChart snapshots={accountHistory} />
           </section>
-          <HoldingsTable holdings={holdings} />
+          <HoldingsTable holdings={holdings} loading={!hasLoadedOnce} />
           <WatchlistPanel
             items={watchlist}
+            loading={!hasLoadedOnce}
             onAdd={handleAddWatchlistItem}
             onDelete={handleDeleteWatchlistItem}
             onAddAlertRule={(symbol, market) => setAlertFormTarget({ symbol, market })}
@@ -155,13 +175,18 @@ function App() {
             />
           )}
 
-          <AlertRuleList rules={alertRules} onToggleActive={handleToggleAlertRule} onDelete={handleDeleteAlertRule} />
-          <AlertLogPreview logs={alertLogs} />
+          <AlertRuleList
+            rules={alertRules}
+            loading={!hasLoadedOnce}
+            onToggleActive={handleToggleAlertRule}
+            onDelete={handleDeleteAlertRule}
+          />
+          <AlertLogPreview logs={alertLogs} loading={!hasLoadedOnce} onMarkRead={handleMarkLogRead} />
         </>
       )}
 
       {view === 'charts' && <ChartsPage options={chartOptions} />}
-      {view === 'history' && <AlertHistoryPage />}
+      {view === 'history' && <AlertHistoryPage onUnreadCountChange={refreshUnreadCount} />}
     </main>
   )
 }

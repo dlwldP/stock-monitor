@@ -40,6 +40,7 @@ export interface AlertLog {
   channel: AlertChannel
   status: AlertLogStatus
   message: string
+  read: boolean
 }
 
 export interface Holding {

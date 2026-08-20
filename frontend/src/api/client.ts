@@ -74,4 +74,7 @@ export const api = {
     params.set('size', String(filter.size ?? 20))
     return request<PageResponse<AlertLog>>(`/api/alert-logs?${params.toString()}`)
   },
+  getUnreadAlertCount: () => request<{ unread: number }>('/api/alert-logs/unread-count'),
+  markAlertLogRead: (id: number) => request<AlertLog>(`/api/alert-logs/${id}/read`, { method: 'PATCH' }),
+  markAllAlertLogsRead: () => request<void>('/api/alert-logs/mark-all-read', { method: 'POST' }),
 }

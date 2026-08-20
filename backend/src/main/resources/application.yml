@@ -21,7 +21,9 @@ spring:
 
   h2:
     console:
-      enabled: true
+      # DB browser exposed at /h2-console. Fine for local dev; set H2_CONSOLE_ENABLED=false
+      # for any deployment reachable from outside your machine - see README.
+      enabled: ${H2_CONSOLE_ENABLED:true}
       path: /h2-console
 
   # SMTP for the email alert channel. Left blank on purpose - see README.
@@ -57,6 +59,11 @@ toss:
     account-seq: ${TOSS_ACCOUNT_SEQ:}
     use-real-client: ${TOSS_API_USE_REAL_CLIENT:false}
 
+# CORS: which frontend origin(s) may call /api/**. Comma-separated for multiple.
+app:
+  cors:
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173}
+
 notification:
   discord-webhook-url: ${DISCORD_WEBHOOK_URL:}
   email-to: ${NOTIFICATION_EMAIL_TO:}
@@ -77,4 +84,4 @@ digest:
 
 logging:
   level:
-    com.stockmonitor: debug
+    com.stockmonitor: ${LOG_LEVEL:debug}

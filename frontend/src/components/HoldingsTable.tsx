@@ -1,12 +1,12 @@
 import type { Holding } from '../types'
 import { formatNumber, pnlClass } from '../format'
 
-export function HoldingsTable({ holdings }: { holdings: Holding[] }) {
+export function HoldingsTable({ holdings, loading }: { holdings: Holding[]; loading?: boolean }) {
   return (
     <section className="card">
       <h2>보유종목</h2>
       {holdings.length === 0 ? (
-        <p className="empty">보유종목이 없습니다.</p>
+        <p className="empty">{loading ? '불러오는 중...' : '보유종목이 없습니다.'}</p>
       ) : (
         <table>
           <thead>

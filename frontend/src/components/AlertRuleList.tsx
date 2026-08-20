@@ -3,6 +3,7 @@ import { formatDateTime, formatNumber } from '../format'
 
 interface Props {
   rules: AlertRule[]
+  loading?: boolean
   onToggleActive: (id: number, active: boolean) => Promise<void>
   onDelete: (id: number) => Promise<void>
 }
@@ -25,12 +26,12 @@ function conditionText(rule: AlertRule): string {
   }
 }
 
-export function AlertRuleList({ rules, onToggleActive, onDelete }: Props) {
+export function AlertRuleList({ rules, loading, onToggleActive, onDelete }: Props) {
   return (
     <section className="card">
       <h2>알림 규칙</h2>
       {rules.length === 0 ? (
-        <p className="empty">등록된 알림 규칙이 없습니다.</p>
+        <p className="empty">{loading ? '불러오는 중...' : '등록된 알림 규칙이 없습니다.'}</p>
       ) : (
         <table>
           <thead>
@@ -60,7 +61,15 @@ export function AlertRuleList({ rules, onToggleActive, onDelete }: Props) {
                   />
                 </td>
                 <td>
-                  <button type="button" className="danger" onClick={() => onDelete(rule.id)}>
+                  <button
+                    type="button"
+                    className="danger"
+                    onClick={() => {
+                      if (window.confirm(`${rule.symbol} 알림 규칙을 삭제할까요?`)) {
+                        onDelete(rule.id)
+                      }
+                    }}
+                  >
                     삭제
                   </button>
                 </td>

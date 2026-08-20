@@ -100,7 +100,7 @@ public class AlertRule {
 			case WEEK52_HIGH_NEAR -> quote.week52High().signum() > 0
 					&& percentGap(quote.week52High(), quote.price()).compareTo(thresholdValue) <= 0;
 			case WEEK52_LOW_NEAR -> quote.week52Low().signum() > 0
-					&& percentGap(quote.price(), quote.week52Low()).compareTo(thresholdValue) <= 0;
+					&& percentGap(quote.week52Low(), quote.price()).compareTo(thresholdValue) <= 0;
 		};
 	}
 

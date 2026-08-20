@@ -4,12 +4,13 @@ import { formatNumber, pnlClass } from '../format'
 
 interface Props {
   items: WatchlistItem[]
+  loading?: boolean
   onAdd: (symbol: string, market: Market, displayName: string) => Promise<void>
   onDelete: (id: number) => Promise<void>
   onAddAlertRule: (symbol: string, market: Market) => void
 }
 
-export function WatchlistPanel({ items, onAdd, onDelete, onAddAlertRule }: Props) {
+export function WatchlistPanel({ items, loading, onAdd, onDelete, onAddAlertRule }: Props) {
   const [symbol, setSymbol] = useState('')
   const [market, setMarket] = useState<Market>('KR')
   const [displayName, setDisplayName] = useState('')
@@ -58,7 +59,7 @@ export function WatchlistPanel({ items, onAdd, onDelete, onAddAlertRule }: Props
       {error && <p className="error-text">{error}</p>}
 
       {items.length === 0 ? (
-        <p className="empty">관심종목이 없습니다. 위에서 추가해보세요.</p>
+        <p className="empty">{loading ? '불러오는 중...' : '관심종목이 없습니다. 위에서 추가해보세요.'}</p>
       ) : (
         <table>
           <thead>
@@ -81,7 +82,15 @@ export function WatchlistPanel({ items, onAdd, onDelete, onAddAlertRule }: Props
                   <button type="button" onClick={() => onAddAlertRule(item.symbol, item.market)}>
                     알림 추가
                   </button>
-                  <button type="button" className="danger" onClick={() => onDelete(item.id)}>
+                  <button
+                    type="button"
+                    className="danger"
+                    onClick={() => {
+                      if (window.confirm(`${item.displayName || item.symbol}을(를) 관심종목에서 삭제할까요?`)) {
+                        onDelete(item.id)
+                      }
+                    }}
+                  >
                     삭제
                   </button>
                 </td>

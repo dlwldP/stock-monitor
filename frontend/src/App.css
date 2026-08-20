@@ -274,6 +274,40 @@ button.link {
   color: #d0362c;
 }
 
+.log-list li.log-unread {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.unread-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  flex: none;
+  align-self: center;
+}
+
+tr.row-unread {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.nav-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  margin-left: 4px;
+  border-radius: 999px;
+  background: #d0362c;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+}
+
 .chart-gridline {
   stroke: var(--border);
   stroke-width: 1;
