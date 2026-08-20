@@ -9,13 +9,14 @@ import { AssetSummaryCard } from './components/AssetSummaryCard'
 import { AssetTrendChart } from './components/AssetTrendChart'
 import { ChartsPage, type ChartSymbolOption } from './components/ChartsPage'
 import { HoldingsTable } from './components/HoldingsTable'
+import { SettingsPage } from './components/SettingsPage'
 import { WatchlistPanel } from './components/WatchlistPanel'
 import type { AccountSnapshot, AccountSummary, AlertLog, AlertRule, Holding, Market, WatchlistItem } from './types'
 
 const REFRESH_INTERVAL_MS = 30_000
 
 type BackendStatus = 'checking' | 'ok' | 'unreachable'
-type View = 'dashboard' | 'charts' | 'history'
+type View = 'dashboard' | 'charts' | 'history' | 'settings'
 
 function App() {
   const [view, setView] = useState<View>('dashboard')
@@ -134,6 +135,9 @@ function App() {
             알림 히스토리
             {unreadCount > 0 && <span className="nav-badge">{unreadCount > 99 ? '99+' : unreadCount}</span>}
           </button>
+          <button type="button" className={view === 'settings' ? 'active' : ''} onClick={() => setView('settings')}>
+            설정
+          </button>
         </nav>
         <span className={`status status-${backendStatus}`}>
           {backendStatus === 'checking' && 'Backend 확인 중...'}
@@ -187,6 +191,7 @@ function App() {
 
       {view === 'charts' && <ChartsPage options={chartOptions} />}
       {view === 'history' && <AlertHistoryPage onUnreadCountChange={refreshUnreadCount} />}
+      {view === 'settings' && <SettingsPage />}
     </main>
   )
 }

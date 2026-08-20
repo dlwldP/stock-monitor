@@ -95,3 +95,21 @@ export interface AccountSnapshot {
   dailyPnl: number
   dailyPnlRate: number
 }
+
+export interface SettingsStatus {
+  toss: {
+    clientIdSet: boolean
+    clientSecretSet: boolean
+    accountSeqSet: boolean
+    useRealClient: boolean
+  }
+  notification: {
+    discordWebhookSet: boolean
+    smtpConfigured: boolean
+    emailToSet: boolean
+  }
+  digest: {
+    enabled: boolean
+    cron: string
+  }
+}
