@@ -61,11 +61,15 @@ public class TossOAuthTokenProvider {
 				.retrieve()
 				.onStatus(HttpStatusCode::isError, (request, httpResponse) -> {
 					int status = httpResponse.getStatusCode().value();
+					String body = TossErrorBodyReader.readAsText(httpResponse);
 					try {
-						TossErrorEnvelope envelope = objectMapper.readValue(httpResponse.getBody(), TossErrorEnvelope.class);
+						TossErrorEnvelope envelope = objectMapper.readValue(body, TossErrorEnvelope.class);
 						throw new TossApiException(status, envelope.error().code(), envelope.error().message(), envelope.error().requestId());
 					} catch (IOException e) {
-						throw new TossApiException(status, "unknown", "토큰 발급 에러 응답을 파싱할 수 없습니다: " + e.getMessage(), null);
+						throw new TossApiException(status, "unknown",
+								"토큰 발급 에러 응답을 파싱할 수 없습니다 (HTTP " + status + "). 응답 본문: "
+										+ snippet(body) + " — client_id/secret이 올바른지, WTS Open API 설정의 허용 IP에 서버 IP가 등록됐는지 확인하세요.",
+								null);
 					}
 				})
 				.body(TokenResponse.class);
@@ -74,6 +78,14 @@ public class TossOAuthTokenProvider {
 			throw new IllegalStateException("토스증권 OAuth 토큰 발급 응답이 비어있습니다.");
 		}
 		return new CachedToken(response.accessToken(), Instant.now().plusSeconds(response.expiresIn()));
+	}
+
+	private static String snippet(String body) {
+		String trimmed = body.strip();
+		if (trimmed.isEmpty()) {
+			return "(empty)";
+		}
+		return trimmed.length() > 300 ? trimmed.substring(0, 300) + "..." : trimmed;
 	}
 
 	private record CachedToken(String accessToken, Instant expiresAt) {
