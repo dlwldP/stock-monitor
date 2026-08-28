@@ -31,13 +31,19 @@ import org.springframework.web.util.UriBuilder;
  * requirement for account-scoped calls, and the error envelope
  * ({@code {"error": {"requestId","code","message","data"}}}, see {@link TossApiException}).
  *
- * <p><b>Still unverified:</b> the exact response body field names for
+ * <p>Also confirmed by calling the real API: every response wraps its payload in a
+ * {@code {"result": ...}} envelope (see {@link ResultEnvelope}), and the
+ * {@code X-Tossinvest-Account} header takes the {@code accountSeq} value from
+ * {@code GET /api/v1/accounts} — not the human-readable {@code accountNo}.
+ *
+ * <p><b>Still unverified:</b> the field names <i>inside</i> {@code result} for
  * {@code GET /api/v1/prices}, {@code GET /api/v1/candles} and {@code GET /api/v1/holdings} —
  * the docs list these endpoints but the detail pages with full request/response schemas
  * weren't available when this was written. {@link QuoteDto}, {@link CandleDto} and
- * {@link HoldingDto} below are still best-guess field names; fix them once those pages
- * are available (paste them and the mapping is a small, isolated edit — everything
- * else in this file doesn't need to change).
+ * {@link HoldingDto} below are still best-guess field names; the {@code getRaw*} methods
+ * here (exposed as {@code GET /api/toss/raw/*}) dump the untouched JSON so they can be
+ * lined up against a real response — the mapping is a small, isolated edit and nothing
+ * else in this file needs to change.
  *
  * <p>This bean only activates when {@code toss.api.use-real-client=true} (see
  * {@link TossApiProperties}) — until then {@link MockTossApiClient} keeps serving the
@@ -76,11 +82,14 @@ public class TossHttpApiClient implements TossApiClient {
 	@Override
 	public Quote getQuote(String symbol, Market market) {
 		// The docs' own getting-started example uses a plural "symbols" query param
-		// (GET /api/v1/stocks?symbols=005930) for a single symbol; /api/v1/prices likely
-		// follows the same convention. Response shape (single object vs. array keyed by
-		// symbol) is unconfirmed - adjust QuoteDto/parsing once the Market Data > 현재가
-		// 조회 page is available.
-		QuoteDto dto = authorizedGet(PRICES_PATH, QuoteDto.class, uri -> uri.queryParam("symbols", symbol), false);
+		// (GET /api/v1/stocks?symbols=005930) for a single symbol, so /api/v1/prices is
+		// called the same way and the (single-element) result list is unwrapped here.
+		List<QuoteDto> dtos = unwrap(authorizedGet(PRICES_PATH, PricesEnvelope.class,
+				uri -> uri.queryParam("symbols", symbol), false));
+		if (dtos.isEmpty()) {
+			throw new IllegalStateException("시세 응답이 비어있습니다: " + symbol);
+		}
+		QuoteDto dto = dtos.get(0);
 		return new Quote(
 				symbol, market, dto.price(), dto.changeRate(), dto.volume(), dto.avgVolume(),
 				dto.week52High(), dto.week52Low(), java.time.Instant.now());
@@ -90,32 +99,49 @@ public class TossHttpApiClient implements TossApiClient {
 	public List<Candle> getDailyCandles(String symbol, Market market, int days) {
 		// Docs list "캔들 차트 조회 (1분봉 · 일봉)" without giving the interval/count
 		// param names - guessing "interval"/"count" below; confirm once available.
-		CandleDto[] dtos = authorizedGet(CANDLES_PATH, CandleDto[].class, uri -> uri
+		return unwrap(authorizedGet(CANDLES_PATH, CandlesEnvelope.class, uri -> uri
 				.queryParam("symbols", symbol)
 				.queryParam("interval", "1d")
-				.queryParam("count", days), false);
-		return List.of(dtos).stream()
+				.queryParam("count", days), false)).stream()
 				.map(d -> new Candle(d.date(), d.open(), d.high(), d.low(), d.close(), d.volume()))
 				.toList();
 	}
 
 	@Override
 	public List<Holding> getHoldings() {
-		HoldingDto[] dtos = authorizedGet(HOLDINGS_PATH, HoldingDto[].class, uri -> uri, true);
-		return List.of(dtos).stream()
+		return unwrap(authorizedGet(HOLDINGS_PATH, HoldingsEnvelope.class, uri -> uri, true)).stream()
 				.map(d -> new Holding(d.symbol(), d.market(), d.name(), d.quantity(), d.avgPrice()))
 				.toList();
 	}
 
+	private static <T> List<T> unwrap(ResultEnvelope<T> envelope) {
+		return envelope == null || envelope.result() == null ? List.of() : envelope.result();
+	}
+
 	/**
-	 * Raw account list from {@code GET /api/v1/accounts} — no response schema is confirmed
-	 * for this endpoint yet, so this deliberately returns the untouched JSON instead of
-	 * mapping it to a DTO. Used by {@code TossDiagnosticsController} to help find the
-	 * correct {@code accountSeq} for {@link TossApiProperties#accountSeq()} when the other
-	 * endpoints fail with "account-not-found".
+	 * Raw {@code GET /api/v1/accounts} JSON, used by {@code TossDiagnosticsController} to
+	 * find the {@code accountSeq} for {@link TossApiProperties#accountSeq()}.
 	 */
 	public JsonNode getAccountsRaw() {
 		return authorizedGet(ACCOUNTS_PATH, JsonNode.class, uri -> uri, false);
+	}
+
+	/** Raw {@code GET /api/v1/holdings} JSON — for confirming {@link HoldingDto}'s field names. */
+	public JsonNode getHoldingsRaw() {
+		return authorizedGet(HOLDINGS_PATH, JsonNode.class, uri -> uri, true);
+	}
+
+	/** Raw {@code GET /api/v1/prices} JSON — for confirming {@link QuoteDto}'s field names. */
+	public JsonNode getPricesRaw(String symbol) {
+		return authorizedGet(PRICES_PATH, JsonNode.class, uri -> uri.queryParam("symbols", symbol), false);
+	}
+
+	/** Raw {@code GET /api/v1/candles} JSON — for confirming {@link CandleDto}'s field names. */
+	public JsonNode getCandlesRaw(String symbol, int days) {
+		return authorizedGet(CANDLES_PATH, JsonNode.class, uri -> uri
+				.queryParam("symbols", symbol)
+				.queryParam("interval", "1d")
+				.queryParam("count", days), false);
 	}
 
 	@Override
@@ -222,6 +248,27 @@ public class TossHttpApiClient implements TossApiClient {
 	}
 
 	// --- Response DTOs below: field names are best-guess, see class Javadoc. ---
+
+	/**
+	 * Every endpoint observed so far wraps its payload in a {@code {"result": ...}} envelope
+	 * (confirmed against the real {@code GET /api/v1/accounts} response), so each list
+	 * endpoint below unwraps one of these rather than binding an array directly.
+	 */
+	private interface ResultEnvelope<T> {
+		List<T> result();
+	}
+
+	@JsonIgnoreProperties(ignoreUnknown = true)
+	private record PricesEnvelope(List<QuoteDto> result) implements ResultEnvelope<QuoteDto> {
+	}
+
+	@JsonIgnoreProperties(ignoreUnknown = true)
+	private record CandlesEnvelope(List<CandleDto> result) implements ResultEnvelope<CandleDto> {
+	}
+
+	@JsonIgnoreProperties(ignoreUnknown = true)
+	private record HoldingsEnvelope(List<HoldingDto> result) implements ResultEnvelope<HoldingDto> {
+	}
 
 	@JsonIgnoreProperties(ignoreUnknown = true)
 	private record QuoteDto(
