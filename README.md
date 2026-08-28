@@ -100,9 +100,9 @@ npm run dev
   - **응답 봉투도 확정**: 실계좌로 확인한 결과 모든 응답이 `{"result": ...}` 형태로 감싸여서 옵니다. 배열을 직접 파싱하면 `Cannot deserialize ... from Object value` 에러가 납니다.
   - **시세 응답 확정**: `GET /api/v1/prices`는 `{"symbol","timestamp","lastPrice","currency"}`만 돌려줍니다 (`lastPrice`는 문자열). **등락률·거래량·52주 고저가 없습니다** — 아래 "실연동 시 제약" 참고.
   - **보유종목 응답 확정**: `GET /api/v1/holdings`의 `result`는 배열이 아니라 **객체**입니다. 계좌 전체 집계(`marketValue`/`profitLoss`/`dailyProfitLoss`, 각각 KRW·USD 양쪽)와 종목 배열(`items`)이 같이 들어있고, 종목마다 현재가(`lastPrice`)까지 포함되어 있습니다. 덕분에 계좌 요약은 이 응답 하나로 끝나고(종목별 시세를 다시 조회하지 않음), 일간 손익도 직접 계산하는 대신 API가 주는 값을 씁니다. `rate` 계열은 퍼센트가 아니라 **소수**입니다 (`"-0.0026"` = -0.26%). 종목의 시장 구분은 `marketCountry`(`"KR"`/`"US"`)입니다.
-  - 시세·보유종목 매핑은 실제 응답을 그대로 넣은 `TossApiResponseMappingTest`로 고정해뒀습니다 (문서가 아니라 실제 호출로 알아낸 필드명이라, 스키마가 바뀌면 조용히 0원으로 표시되는 대신 테스트가 깨지도록).
-  - **캔들 파라미터명 확정**: `symbol`(단수) + `interval`. 이 이름을 쓰면 에러가 "요청 필드가 올바르지 않습니다"(필드명 오류)에서 "지원하지 않는 캔들 주기입니다"(값 오류)로 바뀝니다.
-  - **아직 미확정**: `interval`에 넣을 **값**. `GET /api/toss/probe/candle-intervals?symbol=005930`으로 후보들을 한 번에 시험해볼 수 있습니다 (`?intervals=A,B,C`로 후보 직접 지정 가능). 값을 찾으면 `TossHttpApiClient.DAILY_INTERVAL`만 고치면 되고, 그 다음 `CandleDto` 필드명을 실제 응답에 맞추면 차트가 동작합니다.
+  - 시세·보유종목·캔들 매핑은 실제 응답을 그대로 넣은 `TossApiResponseMappingTest`로 고정해뒀습니다 (문서가 아니라 실제 호출로 알아낸 필드명이라, 스키마가 바뀌면 조용히 0원/빈 차트로 표시되는 대신 테스트가 깨지도록).
+  - **캔들 확정**: 파라미터는 `symbol`(단수) + `interval`, 일봉 값은 **`1d`** (시험해본 다른 표기 `D`/`DAY`/`DAY_1`/`P1D` 등은 전부 "지원하지 않는 캔들 주기"). 응답 항목은 `{"timestamp","openPrice","highPrice","lowPrice","closePrice","volume","currency"}`이고 **최신순**으로 옵니다 (차트는 과거순이라 뒤집어서 사용). `count`류 파라미터는 확인된 게 없어서 보내지 않고, 받은 뒤 필요한 일수만큼 잘라 씁니다. 더 과거 데이터는 응답의 `nextBefore` 커서로 페이징할 수 있으나 아직 사용하지 않습니다.
+  - 캔들 `timestamp`는 `2026-06-08T00:00:00.000+09:00`처럼 자정+KST라서, Jackson 기본 설정(`ADJUST_DATES_TO_CONTEXT_TIME_ZONE`)으로 바인딩하면 UTC로 변환되며 **하루씩 밀립니다**. 그래서 문자열로 받아 오프셋 그대로 파싱합니다 (`CandleDto.tradingDate()`).
 
 ### 실연동 시 제약 (Mock과의 차이)
 

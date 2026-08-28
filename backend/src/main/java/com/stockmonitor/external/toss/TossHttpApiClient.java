@@ -11,6 +11,10 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.OffsetDateTime;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
@@ -43,11 +47,10 @@ import org.springframework.web.util.UriBuilder;
  * {@code TossApiResponseMappingTest} pins both mappings to a captured response so a schema
  * change fails loudly instead of quietly zeroing out the dashboard.
  *
- * <p><b>Still unverified:</b> {@code GET /api/v1/candles}, which rejects the parameter names
- * guessed in {@link #getDailyCandles} with {@code invalid-request}. The {@code getRaw*}
- * methods here (exposed as {@code GET /api/toss/raw/*}, plus a free-form
- * {@code GET /api/toss/raw?path=...}) dump untouched JSON for probing it; once the right
- * parameters are known, only {@link #getDailyCandles} and {@link CandleDto} need to change.
+ * <p>{@code /api/v1/candles} was pinned down the same way — see {@link #getDailyCandles} for
+ * its parameters and {@link CandleDto} for its fields. The {@code getRaw*} methods here
+ * (exposed as {@code GET /api/toss/raw/*}, plus a free-form {@code GET /api/toss/raw?path=...})
+ * dump untouched JSON, which is how each of these was worked out and how the next one can be.
  *
  * <p>This bean only activates when {@code toss.api.use-real-client=true} (see
  * {@link TossApiProperties}) — until then {@link MockTossApiClient} keeps serving the
@@ -61,7 +64,7 @@ public class TossHttpApiClient implements TossApiClient {
 	private static final String CANDLES_PATH = "/api/v1/candles";
 	private static final String HOLDINGS_PATH = "/api/v1/holdings";
 	private static final String ACCOUNTS_PATH = "/api/v1/accounts";
-	/** Unconfirmed — see {@link #getDailyCandles}. */
+	/** The one daily-interval spelling the API accepts — see {@link #getDailyCandles}. */
 	private static final String DAILY_INTERVAL = "1d";
 	private static final long DEFAULT_RETRY_SECONDS = 2;
 
@@ -114,20 +117,61 @@ public class TossHttpApiClient implements TossApiClient {
 	/**
 	 * {@inheritDoc}
 	 *
-	 * <p>{@code symbol} (singular) and {@code interval} are confirmed to be the right
-	 * parameter names — with them the API rejects the request as "지원하지 않는 캔들 주기"
-	 * (known field, unsupported value) rather than "요청 필드가 올바르지 않습니다" (unknown
-	 * field). {@link #DAILY_INTERVAL} is still a guess at the accepted value; probe it with
-	 * {@code GET /api/toss/probe/candle-intervals?symbol=005930}.
+	 * <p>Confirmed by probing the live API: the parameters are {@code symbol} (singular) and
+	 * {@code interval}, and {@code "1d"} is the accepted daily interval (every other
+	 * spelling tried — {@code D}, {@code DAY}, {@code DAY_1}, {@code P1D}, … — is rejected
+	 * with "지원하지 않는 캔들 주기입니다").
+	 *
+	 * <p>No {@code count}/limit parameter is sent because none is confirmed and an
+	 * unrecognized field fails the whole request; the API returns a long history by default,
+	 * which is trimmed to {@code days} here. The response also carries a {@code nextBefore}
+	 * cursor for paging further back, which isn't used — if a chart ever needs more history
+	 * than one page holds, that's the hook for it.
 	 */
 	@Override
 	public List<Candle> getDailyCandles(String symbol, Market market, int days) {
-		return unwrap(authorizedGet(CANDLES_PATH, CandlesEnvelope.class, uri -> uri
+		JsonNode result = authorizedGet(CANDLES_PATH, JsonNode.class, uri -> uri
 				.queryParam("symbol", symbol)
-				.queryParam("interval", DAILY_INTERVAL)
-				.queryParam("count", days), false)).stream()
-				.map(d -> new Candle(d.date(), d.open(), d.high(), d.low(), d.close(), d.volume()))
-				.toList();
+				.queryParam("interval", DAILY_INTERVAL), false)
+				.path("result");
+		return toCandles(result, symbol, days, objectMapper);
+	}
+
+	/** Package-private and static so {@code TossApiResponseMappingTest} can pin it to a real response. */
+	static List<Candle> toCandles(JsonNode result, String symbol, int days, ObjectMapper objectMapper) {
+		List<Candle> candles = new ArrayList<>();
+		for (JsonNode node : candleArray(result, symbol)) {
+			CandleDto dto = objectMapper.convertValue(node, CandleDto.class);
+			candles.add(new Candle(
+					dto.tradingDate(), dto.openPrice(), dto.highPrice(),
+					dto.lowPrice(), dto.closePrice(), dto.volume()));
+		}
+		// The API returns newest-first; charts (and MockTossApiClient) work oldest-first.
+		candles.sort(Comparator.comparing(Candle::date));
+		return candles.size() <= days ? candles : candles.subList(candles.size() - days, candles.size());
+	}
+
+	/**
+	 * Picks the candle array out of the response's {@code result} object, which also holds a
+	 * {@code nextBefore} cursor. The array's field name isn't documented and wasn't visible
+	 * in the captured response, so rather than guess a name and render an empty chart when
+	 * the guess is wrong, this takes the object's sole array field and fails loudly, naming
+	 * what it actually found, if there isn't one.
+	 */
+	private static JsonNode candleArray(JsonNode result, String symbol) {
+		if (result.isArray()) {
+			return result;
+		}
+		for (Iterator<Map.Entry<String, JsonNode>> it = result.fields(); it.hasNext(); ) {
+			Map.Entry<String, JsonNode> field = it.next();
+			if (field.getValue().isArray()) {
+				return field.getValue();
+			}
+		}
+		List<String> fieldNames = new ArrayList<>();
+		result.fieldNames().forEachRemaining(fieldNames::add);
+		throw new IllegalStateException(
+				"캔들 응답에서 배열 필드를 찾지 못했습니다 (symbol=%s). result의 필드: %s".formatted(symbol, fieldNames));
 	}
 
 	@Override
@@ -344,9 +388,6 @@ public class TossHttpApiClient implements TossApiClient {
 	record PricesEnvelope(List<QuoteDto> result) implements ResultEnvelope<QuoteDto> {
 	}
 
-	@JsonIgnoreProperties(ignoreUnknown = true)
-	record CandlesEnvelope(List<CandleDto> result) implements ResultEnvelope<CandleDto> {
-	}
 
 	/**
 	 * Holdings is the one endpoint whose {@code result} is an object rather than a list:
@@ -408,7 +449,32 @@ public class TossHttpApiClient implements TossApiClient {
 			BigDecimal averagePurchasePrice) {
 	}
 
+	/**
+	 * Confirmed against a real {@code GET /api/v1/candles?symbol=005930&interval=1d} entry:
+	 * <pre>{"timestamp":"2026-06-08T00:00:00.000+09:00","openPrice":"304500","highPrice":"316000",
+	 * "lowPrice":"290500","closePrice":"303000","volume":"76298436","currency":"KRW"}</pre>
+	 * The timestamp carries the market's own offset, so its local date is the trading day.
+	 */
 	@JsonIgnoreProperties(ignoreUnknown = true)
-	record CandleDto(LocalDate date, BigDecimal open, BigDecimal high, BigDecimal low, BigDecimal close, long volume) {
+	record CandleDto(
+			String timestamp,
+			BigDecimal openPrice,
+			BigDecimal highPrice,
+			BigDecimal lowPrice,
+			BigDecimal closePrice,
+			long volume,
+			String currency) {
+
+		/**
+		 * The trading day, read in the offset the API sent.
+		 *
+		 * <p>Kept as a String and parsed here rather than bound as an {@code OffsetDateTime}:
+		 * Jackson's {@code ADJUST_DATES_TO_CONTEXT_TIME_ZONE} (on by default, including in
+		 * Spring Boot's ObjectMapper) would normalize these midnight-KST timestamps to UTC,
+		 * putting every Korean candle on the previous day.
+		 */
+		LocalDate tradingDate() {
+			return OffsetDateTime.parse(timestamp).toLocalDate();
+		}
 	}
 }

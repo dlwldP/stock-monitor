@@ -1,10 +1,13 @@
 package com.stockmonitor.external.toss;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.stockmonitor.domain.Market;
+import java.time.LocalDate;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
@@ -78,6 +81,61 @@ class TossApiResponseMappingTest {
 		assertThat(summary.dailyPnl()).isEqualByComparingTo("-85");
 		// The API reports rates as fractions: "-0.0026" is -0.26%.
 		assertThat(summary.dailyPnlRate()).isEqualByComparingTo("-0.26");
+	}
+
+	/**
+	 * Three entries from a real {@code /api/v1/candles?symbol=005930&interval=1d} response,
+	 * newest-first as the API returns them. The array's field name wasn't visible in the
+	 * captured output, so {@code candleArray} takes the {@code result} object's sole array
+	 * field — {@code items} here stands in for whatever it's actually called, and the test
+	 * would still pass under a different name, which is the point.
+	 */
+	private static final String CANDLES_RESPONSE = """
+			{"result":{"items":[\
+			{"timestamp":"2026-06-08T00:00:00.000+09:00","openPrice":"304500","highPrice":"316000",\
+			"lowPrice":"290500","closePrice":"303000","volume":"76298436","currency":"KRW"},\
+			{"timestamp":"2026-06-05T00:00:00.000+09:00","openPrice":"343000","highPrice":"346000",\
+			"lowPrice":"321000","closePrice":"329000","volume":"64419483","currency":"KRW"},\
+			{"timestamp":"2026-06-04T00:00:00.000+09:00","openPrice":"359000","highPrice":"366500",\
+			"lowPrice":"338500","closePrice":"342000","volume":"61113411","currency":"KRW"}],\
+			"nextBefore":"2026-06-03T00:00:00.000+09:00"}}""";
+
+	@Test
+	void mapsCandlesOldestFirstAndTrimsToTheRequestedDays() throws Exception {
+		List<Candle> candles = candlesFrom(CANDLES_RESPONSE, 60);
+
+		assertThat(candles).hasSize(3);
+		// The API returns newest-first; charts want oldest-first.
+		assertThat(candles.stream().map(Candle::date))
+				.containsExactly(LocalDate.of(2026, 6, 4), LocalDate.of(2026, 6, 5), LocalDate.of(2026, 6, 8));
+
+		Candle latest = candles.get(2);
+		assertThat(latest.open()).isEqualByComparingTo("304500");
+		assertThat(latest.high()).isEqualByComparingTo("316000");
+		assertThat(latest.low()).isEqualByComparingTo("290500");
+		assertThat(latest.close()).isEqualByComparingTo("303000");
+		assertThat(latest.volume()).isEqualTo(76_298_436L);
+	}
+
+	@Test
+	void keepsTheMostRecentCandlesWhenTheApiReturnsMoreThanRequested() throws Exception {
+		List<Candle> candles = candlesFrom(CANDLES_RESPONSE, 2);
+
+		assertThat(candles.stream().map(Candle::date))
+				.containsExactly(LocalDate.of(2026, 6, 5), LocalDate.of(2026, 6, 8));
+	}
+
+	@Test
+	void failsLoudlyRatherThanRenderingAnEmptyChartWhenThereIsNoCandleArray() {
+		assertThatThrownBy(() -> candlesFrom("{\"result\":{\"nextBefore\":\"2026-06-03T00:00:00.000+09:00\"}}", 60))
+				.isInstanceOf(IllegalStateException.class)
+				.hasMessageContaining("nextBefore");
+	}
+
+	/** Runs the response through the same mapping {@code getDailyCandles} uses. */
+	private List<Candle> candlesFrom(String responseBody, int days) throws Exception {
+		JsonNode result = objectMapper.readTree(responseBody).path("result");
+		return TossHttpApiClient.toCandles(result, "005930", days, objectMapper);
 	}
 
 	@Test
