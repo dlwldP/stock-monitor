@@ -102,7 +102,7 @@ npm run dev
 
 1. WTS **설정 > Open API** 메뉴에서 `client_id`/`client_secret` 발급, **허용 IP** 목록에 서버 IP 등록 (미등록 IP는 403).
 2. 키를 넣고 `TOSS_API_USE_REAL_CLIENT=true`로 켠 뒤, `POST /api/toss/verify-connection`으로 OAuth 토큰 발급만 먼저 확인하세요 (데이터 엔드포인트는 안 건드립니다).
-3. `GET /api/v1/accounts`로 계좌 목록을 조회해 `accountSeq`를 확인하고 `TOSS_ACCOUNT_SEQ`로 설정하세요.
+3. `GET /api/toss/accounts`(우리 백엔드가 대신 호출해주는 진단용 엔드포인트, `accountSeq` 없이도 동작)로 계좌 목록을 조회해 `accountSeq`를 확인하고 `TOSS_ACCOUNT_SEQ`로 설정하세요.
 4. `QuoteDto`/`CandleDto`/`HoldingDto` 필드명을 실제 응답에 맞게 고치세요 (postman이나 curl로 실제 응답을 한 번 찍어보는 게 제일 빠릅니다).
 5. 그 다음 대시보드/관심종목 등 나머지 기능을 실 데이터로 확인하세요.
 
