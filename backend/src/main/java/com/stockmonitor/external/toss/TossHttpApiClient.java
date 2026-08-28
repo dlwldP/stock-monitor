@@ -61,6 +61,8 @@ public class TossHttpApiClient implements TossApiClient {
 	private static final String CANDLES_PATH = "/api/v1/candles";
 	private static final String HOLDINGS_PATH = "/api/v1/holdings";
 	private static final String ACCOUNTS_PATH = "/api/v1/accounts";
+	/** Unconfirmed — see {@link #getDailyCandles}. */
+	private static final String DAILY_INTERVAL = "1d";
 	private static final long DEFAULT_RETRY_SECONDS = 2;
 
 	private final TossApiProperties properties;
@@ -109,13 +111,20 @@ public class TossHttpApiClient implements TossApiClient {
 				dto.timestamp() != null ? dto.timestamp() : java.time.Instant.now());
 	}
 
+	/**
+	 * {@inheritDoc}
+	 *
+	 * <p>{@code symbol} (singular) and {@code interval} are confirmed to be the right
+	 * parameter names — with them the API rejects the request as "지원하지 않는 캔들 주기"
+	 * (known field, unsupported value) rather than "요청 필드가 올바르지 않습니다" (unknown
+	 * field). {@link #DAILY_INTERVAL} is still a guess at the accepted value; probe it with
+	 * {@code GET /api/toss/probe/candle-intervals?symbol=005930}.
+	 */
 	@Override
 	public List<Candle> getDailyCandles(String symbol, Market market, int days) {
-		// Docs list "캔들 차트 조회 (1분봉 · 일봉)" without giving the interval/count
-		// param names - guessing "interval"/"count" below; confirm once available.
 		return unwrap(authorizedGet(CANDLES_PATH, CandlesEnvelope.class, uri -> uri
-				.queryParam("symbols", symbol)
-				.queryParam("interval", "1d")
+				.queryParam("symbol", symbol)
+				.queryParam("interval", DAILY_INTERVAL)
 				.queryParam("count", days), false)).stream()
 				.map(d -> new Candle(d.date(), d.open(), d.high(), d.low(), d.close(), d.volume()))
 				.toList();
@@ -176,8 +185,8 @@ public class TossHttpApiClient implements TossApiClient {
 	/** Raw {@code GET /api/v1/candles} JSON — for confirming {@link CandleDto}'s field names. */
 	public JsonNode getCandlesRaw(String symbol, int days) {
 		return authorizedGet(CANDLES_PATH, JsonNode.class, uri -> uri
-				.queryParam("symbols", symbol)
-				.queryParam("interval", "1d")
+				.queryParam("symbol", symbol)
+				.queryParam("interval", DAILY_INTERVAL)
 				.queryParam("count", days), false);
 	}
 
