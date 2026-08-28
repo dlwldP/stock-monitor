@@ -64,7 +64,11 @@ public class TossHttpApiClient implements TossApiClient {
 		SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
 		requestFactory.setConnectTimeout(5_000);
 		requestFactory.setReadTimeout(10_000);
-		this.restClient = RestClient.builder().requestFactory(requestFactory).build();
+		// baseUrl() must be set here rather than concatenated into UriBuilder.path() below -
+		// UriBuilder.path() treats its argument as a path segment to append, not a full
+		// absolute URL, so "https://host" + "/path" gets merged into "https:/host/path"
+		// (the double slash collapsed) instead of parsed as scheme+host.
+		this.restClient = RestClient.builder().baseUrl(properties.baseUrl()).requestFactory(requestFactory).build();
 	}
 
 	@Override
@@ -133,7 +137,7 @@ public class TossHttpApiClient implements TossApiClient {
 	/** One retry on 429, honoring Retry-After, per the docs' rate-limit guidance. */
 	private <T> T authorizedGet(String path, Class<T> responseType, Function<UriBuilder, UriBuilder> queryParams, boolean requiresAccount) {
 		Supplier<T> call = () -> restClient.get()
-				.uri(uriBuilder -> queryParams.apply(uriBuilder.path(properties.baseUrl() + path)).build())
+				.uri(uriBuilder -> queryParams.apply(uriBuilder.path(path)).build())
 				.headers(headers -> {
 					headers.setBearerAuth(tokenProvider.getAccessToken());
 					if (requiresAccount) {
