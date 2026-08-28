@@ -101,7 +101,8 @@ npm run dev
   - **시세 응답 확정**: `GET /api/v1/prices`는 `{"symbol","timestamp","lastPrice","currency"}`만 돌려줍니다 (`lastPrice`는 문자열). **등락률·거래량·52주 고저가 없습니다** — 아래 "실연동 시 제약" 참고.
   - **보유종목 응답 확정**: `GET /api/v1/holdings`의 `result`는 배열이 아니라 **객체**입니다. 계좌 전체 집계(`marketValue`/`profitLoss`/`dailyProfitLoss`, 각각 KRW·USD 양쪽)와 종목 배열(`items`)이 같이 들어있고, 종목마다 현재가(`lastPrice`)까지 포함되어 있습니다. 덕분에 계좌 요약은 이 응답 하나로 끝나고(종목별 시세를 다시 조회하지 않음), 일간 손익도 직접 계산하는 대신 API가 주는 값을 씁니다. `rate` 계열은 퍼센트가 아니라 **소수**입니다 (`"-0.0026"` = -0.26%). 종목의 시장 구분은 `marketCountry`(`"KR"`/`"US"`)입니다.
   - 시세·보유종목 매핑은 실제 응답을 그대로 넣은 `TossApiResponseMappingTest`로 고정해뒀습니다 (문서가 아니라 실제 호출로 알아낸 필드명이라, 스키마가 바뀌면 조용히 0원으로 표시되는 대신 테스트가 깨지도록).
-  - **아직 미확정**: `/api/v1/candles`의 **요청 파라미터명** (현재 추정값으로 호출하면 `invalid-request` 400이 납니다). `GET /api/toss/raw?path=...`(아래 참고)로 파라미터를 바꿔가며 찾을 수 있습니다.
+  - **캔들 파라미터명 확정**: `symbol`(단수) + `interval`. 이 이름을 쓰면 에러가 "요청 필드가 올바르지 않습니다"(필드명 오류)에서 "지원하지 않는 캔들 주기입니다"(값 오류)로 바뀝니다.
+  - **아직 미확정**: `interval`에 넣을 **값**. `GET /api/toss/probe/candle-intervals?symbol=005930`으로 후보들을 한 번에 시험해볼 수 있습니다 (`?intervals=A,B,C`로 후보 직접 지정 가능). 값을 찾으면 `TossHttpApiClient.DAILY_INTERVAL`만 고치면 되고, 그 다음 `CandleDto` 필드명을 실제 응답에 맞추면 차트가 동작합니다.
 
 ### 실연동 시 제약 (Mock과의 차이)
 
@@ -126,7 +127,8 @@ npm run dev
    - `GET /api/toss/raw/holdings`
    - `GET /api/toss/raw/prices?symbol=005930`
    - `GET /api/toss/raw/candles?symbol=005930&days=5`
-   - `GET /api/toss/raw?path=/api/v1/candles&symbols=005930&period=DAY` — 임의의 `/api/v1/**` 경로에 임의의 쿼리 파라미터로 호출. 캔들처럼 **파라미터 이름부터 찾아야 할 때** 코드 수정 없이 시도해볼 수 있습니다.
+   - `GET /api/toss/raw?path=/api/v1/candles&symbol=005930&interval=1d` — 임의의 `/api/v1/**` 경로에 임의의 쿼리 파라미터로 호출. 캔들처럼 **파라미터 이름부터 찾아야 할 때** 코드 수정 없이 시도해볼 수 있습니다.
+   - `GET /api/toss/probe/candle-intervals?symbol=005930` — 캔들 주기 후보들을 한 번에 시험해서 API가 받아주는 값을 찾아줍니다.
 5. 그 다음 대시보드/관심종목 등 나머지 기능을 실 데이터로 확인하세요.
 
 ## 현재 상태 (1~3단계)

@@ -4,7 +4,9 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.stockmonitor.config.TossApiProperties;
 import com.stockmonitor.external.toss.TossHttpApiClient;
 import com.stockmonitor.external.toss.TossOAuthTokenProvider;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
 import org.springframework.beans.factory.ObjectProvider;
@@ -23,6 +25,12 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/api/toss")
 public class TossDiagnosticsController {
+
+	private static final String CANDLES_PATH = "/api/v1/candles";
+
+	/** Plausible spellings of a daily interval, ordered roughly by likelihood. */
+	private static final List<String> CANDLE_INTERVAL_CANDIDATES = List.of(
+			"1d", "D", "d", "1D", "DAY", "DAILY", "DAY_1", "1DAY", "1day", "day", "P1D", "ONE_DAY");
 
 	private final ObjectProvider<TossOAuthTokenProvider> tokenProviderProvider;
 	private final ObjectProvider<TossHttpApiClient> httpApiClientProvider;
@@ -95,6 +103,55 @@ public class TossDiagnosticsController {
 		Map<String, String> queryParams = new LinkedHashMap<>(allParams);
 		queryParams.remove("path");
 		return raw("요청(" + path + ")", client -> client.getRaw(path, queryParams));
+	}
+
+	/**
+	 * Tries each candidate {@code interval} value against {@code /api/v1/candles} and reports
+	 * which one the API accepts.
+	 *
+	 * <p>{@code symbol}/{@code interval} are known to be the right parameter <i>names</i> —
+	 * using them changes the rejection from "요청 필드가 올바르지 않습니다" (unknown field) to
+	 * "지원하지 않는 캔들 주기입니다" (known field, unsupported value) — but the docs don't say
+	 * what the accepted values are. This walks the plausible spellings in one request instead
+	 * of one curl per guess.
+	 */
+	@GetMapping("/probe/candle-intervals")
+	public Map<String, Object> probeCandleIntervals(
+			@RequestParam String symbol,
+			@RequestParam(required = false) String intervals) {
+		if (!properties.useRealClient()) {
+			return Map.of("ok", false, "message", "toss.api.use-real-client=false 입니다. TOSS_API_USE_REAL_CLIENT=true로 켠 뒤 다시 시도하세요.");
+		}
+		TossHttpApiClient client = httpApiClientProvider.getIfAvailable();
+		if (client == null) {
+			return Map.of("ok", false, "message", "TossHttpApiClient 빈을 찾을 수 없습니다.");
+		}
+
+		List<String> candidates = intervals == null || intervals.isBlank()
+				? CANDLE_INTERVAL_CANDIDATES
+				: List.of(intervals.split(","));
+		List<Map<String, Object>> attempts = new ArrayList<>();
+		String accepted = null;
+		for (String candidate : candidates) {
+			String interval = candidate.trim();
+			try {
+				JsonNode response = client.getRaw(CANDLES_PATH, Map.of("symbol", symbol, "interval", interval));
+				attempts.add(Map.of("interval", interval, "ok", true, "response", response));
+				if (accepted == null) {
+					accepted = interval;
+				}
+			} catch (Exception e) {
+				attempts.add(Map.of("interval", interval, "ok", false, "error", String.valueOf(e.getMessage())));
+			}
+		}
+		Map<String, Object> result = new LinkedHashMap<>();
+		result.put("ok", accepted != null);
+		result.put("accepted", accepted);
+		result.put("attempts", attempts);
+		if (accepted == null) {
+			result.put("message", "후보 중 통과한 값이 없습니다. ?intervals=A,B,C 로 다른 후보를 직접 넣어보세요.");
+		}
+		return result;
 	}
 
 	private Map<String, Object> raw(String label, Function<TossHttpApiClient, JsonNode> call) {
