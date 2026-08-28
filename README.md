@@ -99,7 +99,9 @@ npm run dev
   - **엔드포인트 경로도 확정**: 시세 `GET /api/v1/prices`, 캔들 `GET /api/v1/candles`, 보유종목 `GET /api/v1/holdings`.
   - **응답 봉투도 확정**: 실계좌로 확인한 결과 모든 응답이 `{"result": ...}` 형태로 감싸여서 옵니다. 배열을 직접 파싱하면 `Cannot deserialize ... from Object value` 에러가 납니다.
   - **시세 응답 확정**: `GET /api/v1/prices`는 `{"symbol","timestamp","lastPrice","currency"}`만 돌려줍니다 (`lastPrice`는 문자열). **등락률·거래량·52주 고저가 없습니다** — 아래 "실연동 시 제약" 참고.
-  - **아직 미확정**: `/api/v1/holdings`의 `result` 안쪽 필드명, `/api/v1/candles`의 **요청 파라미터명** (현재 추정값으로 호출하면 `invalid-request` 400이 납니다). `GET /api/toss/raw/*`, `GET /api/toss/raw?path=...`(아래 참고)로 원문을 확인해서 맞추면 됩니다.
+  - **보유종목 응답 확정**: `GET /api/v1/holdings`의 `result`는 배열이 아니라 **객체**입니다. 계좌 전체 집계(`marketValue`/`profitLoss`/`dailyProfitLoss`, 각각 KRW·USD 양쪽)와 종목 배열(`items`)이 같이 들어있고, 종목마다 현재가(`lastPrice`)까지 포함되어 있습니다. 덕분에 계좌 요약은 이 응답 하나로 끝나고(종목별 시세를 다시 조회하지 않음), 일간 손익도 직접 계산하는 대신 API가 주는 값을 씁니다. `rate` 계열은 퍼센트가 아니라 **소수**입니다 (`"-0.0026"` = -0.26%). 종목의 시장 구분은 `marketCountry`(`"KR"`/`"US"`)입니다.
+  - 시세·보유종목 매핑은 실제 응답을 그대로 넣은 `TossApiResponseMappingTest`로 고정해뒀습니다 (문서가 아니라 실제 호출로 알아낸 필드명이라, 스키마가 바뀌면 조용히 0원으로 표시되는 대신 테스트가 깨지도록).
+  - **아직 미확정**: `/api/v1/candles`의 **요청 파라미터명** (현재 추정값으로 호출하면 `invalid-request` 400이 납니다). `GET /api/toss/raw?path=...`(아래 참고)로 파라미터를 바꿔가며 찾을 수 있습니다.
 
 ### 실연동 시 제약 (Mock과의 차이)
 
@@ -113,7 +115,7 @@ npm run dev
 | 52주 신고가/신저가 근접 (WEEK52_*) | ✅ | ❌ 데이터 없음 |
 
 데이터가 없는 조건은 예외를 던지지 않고 **그냥 발동하지 않습니다** (`AlertRule.isSatisfiedBy`) — 규칙 하나 때문에 폴링 전체가 죽지 않도록. 관심종목 화면의 등락률도 `-`로 표시됩니다. 등락률/거래량/52주 정보를 주는 엔드포인트를 찾으면 `TossHttpApiClient.getQuote`만 고치면 됩니다.
-  - **계좌 요약(총 평가금액/손익)** 은 별도 엔드포인트가 문서에 없어서, 보유종목 목록 + 종목별 시세를 클라이언트에서 합산하는 방식으로 구현했습니다 (Mock과 동일한 방식).
+  - **계좌 요약(총 평가금액/손익)** 은 별도 엔드포인트가 없지만, 위처럼 보유종목 응답이 이미 계좌 집계를 포함하고 있어서 그 값을 그대로 읽습니다. (Mock은 여전히 보유종목 × 시세로 합산합니다.)
 
 `TOSS_CLIENT_ID`/`TOSS_CLIENT_SECRET`을 넣어도 `TOSS_API_USE_REAL_CLIENT=true`로 **직접 켜기 전까지는** 계속 Mock이 서빙합니다 (`TossApiClientConfig`가 빈을 갈아끼움). 순서 제안:
 

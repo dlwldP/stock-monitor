@@ -39,8 +39,12 @@ public class DashboardService {
 	}
 
 	private HoldingResponse toResponse(Holding holding) {
-		Quote quote = tossApiClient.getQuote(holding.symbol(), holding.market());
-		BigDecimal evalAmount = quote.price().multiply(holding.quantity()).setScale(2, RoundingMode.HALF_UP);
+		// The real holdings response already carries each position's current price; only fall
+		// back to a per-symbol quote call when the source didn't supply one (e.g. mock data).
+		BigDecimal currentPrice = holding.lastPrice() != null
+				? holding.lastPrice()
+				: tossApiClient.getQuote(holding.symbol(), holding.market()).price();
+		BigDecimal evalAmount = currentPrice.multiply(holding.quantity()).setScale(2, RoundingMode.HALF_UP);
 		BigDecimal costAmount = holding.avgPrice().multiply(holding.quantity());
 		BigDecimal pnl = evalAmount.subtract(costAmount).setScale(2, RoundingMode.HALF_UP);
 		BigDecimal pnlRate = costAmount.signum() == 0
@@ -48,6 +52,6 @@ public class DashboardService {
 				: pnl.divide(costAmount, 6, RoundingMode.HALF_UP).multiply(BigDecimal.valueOf(100)).setScale(2, RoundingMode.HALF_UP);
 		return new HoldingResponse(
 				holding.symbol(), holding.market(), holding.name(), holding.quantity(), holding.avgPrice(),
-				quote.price(), evalAmount, pnl, pnlRate);
+				currentPrice, evalAmount, pnl, pnlRate);
 	}
 }

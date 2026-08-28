@@ -38,14 +38,16 @@ import org.springframework.web.util.UriBuilder;
  * {@code X-Tossinvest-Account} header takes the {@code accountSeq} value from
  * {@code GET /api/v1/accounts} — not the human-readable {@code accountNo}.
  *
- * <p><b>Still unverified:</b> the field names <i>inside</i> {@code result} for
- * {@code GET /api/v1/prices}, {@code GET /api/v1/candles} and {@code GET /api/v1/holdings} —
- * the docs list these endpoints but the detail pages with full request/response schemas
- * weren't available when this was written. {@link QuoteDto}, {@link CandleDto} and
- * {@link HoldingDto} below are still best-guess field names; the {@code getRaw*} methods
- * here (exposed as {@code GET /api/toss/raw/*}) dump the untouched JSON so they can be
- * lined up against a real response — the mapping is a small, isolated edit and nothing
- * else in this file needs to change.
+ * <p>{@code /api/v1/prices} and {@code /api/v1/holdings} were mapped by calling the live API
+ * and reading the response, since the docs list the endpoints without their schemas;
+ * {@code TossApiResponseMappingTest} pins both mappings to a captured response so a schema
+ * change fails loudly instead of quietly zeroing out the dashboard.
+ *
+ * <p><b>Still unverified:</b> {@code GET /api/v1/candles}, which rejects the parameter names
+ * guessed in {@link #getDailyCandles} with {@code invalid-request}. The {@code getRaw*}
+ * methods here (exposed as {@code GET /api/toss/raw/*}, plus a free-form
+ * {@code GET /api/toss/raw?path=...}) dump untouched JSON for probing it; once the right
+ * parameters are known, only {@link #getDailyCandles} and {@link CandleDto} need to change.
  *
  * <p>This bean only activates when {@code toss.api.use-real-client=true} (see
  * {@link TossApiProperties}) — until then {@link MockTossApiClient} keeps serving the
@@ -121,9 +123,32 @@ public class TossHttpApiClient implements TossApiClient {
 
 	@Override
 	public List<Holding> getHoldings() {
-		return unwrap(authorizedGet(HOLDINGS_PATH, HoldingsEnvelope.class, uri -> uri, true)).stream()
-				.map(d -> new Holding(d.symbol(), d.market(), d.name(), d.quantity(), d.avgPrice()))
+		return toHoldings(fetchHoldings());
+	}
+
+	/** Package-private and static so {@code TossApiResponseMappingTest} can pin it to a real response. */
+	static List<Holding> toHoldings(HoldingsResult result) {
+		if (result.items() == null) {
+			return List.of();
+		}
+		return result.items().stream()
+				.map(i -> new Holding(
+						i.symbol(), toMarket(i.marketCountry()), i.name(),
+						i.quantity(), i.averagePurchasePrice(), i.lastPrice()))
 				.toList();
+	}
+
+	private HoldingsResult fetchHoldings() {
+		HoldingsEnvelope envelope = authorizedGet(HOLDINGS_PATH, HoldingsEnvelope.class, uri -> uri, true);
+		if (envelope == null || envelope.result() == null) {
+			throw new IllegalStateException("보유종목 응답이 비어있습니다.");
+		}
+		return envelope.result();
+	}
+
+	/** {@code marketCountry} is an ISO country code ("KR"/"US") rather than our market name. */
+	private static Market toMarket(String marketCountry) {
+		return "US".equalsIgnoreCase(marketCountry) ? Market.US : Market.KR;
 	}
 
 	private static <T> List<T> unwrap(ResultEnvelope<T> envelope) {
@@ -182,24 +207,34 @@ public class TossHttpApiClient implements TossApiClient {
 				accountSeq != null && !accountSeq.isBlank());
 	}
 
+	/**
+	 * {@inheritDoc}
+	 *
+	 * <p>The holdings response already carries account-level aggregates, so this reads them
+	 * straight off it — one call, and a genuinely daily P&amp;L figure rather than the
+	 * total-vs-cost approximation this used before the response shape was known. Totals are
+	 * taken in KRW; the API reports each block in both KRW and USD.
+	 */
 	@Override
 	public AccountSummary getAccountSummary() {
-		// The docs don't list a separate "계좌 요약" endpoint - only 계좌 목록 (accounts)
-		// and 보유 주식 조회 (holdings, "종목별 상세 + 합산 평가" - it may already return an
-		// aggregate, but until that schema is confirmed this sums holdings x live quotes
-		// client-side, the same approach MockTossApiClient uses.
-		BigDecimal totalValue = BigDecimal.ZERO;
-		BigDecimal totalCost = BigDecimal.ZERO;
-		for (Holding h : getHoldings()) {
-			Quote quote = getQuote(h.symbol(), h.market());
-			totalValue = totalValue.add(quote.price().multiply(h.quantity()));
-			totalCost = totalCost.add(h.avgPrice().multiply(h.quantity()));
-		}
-		BigDecimal dailyPnl = totalValue.subtract(totalCost);
-		BigDecimal dailyPnlRate = totalCost.signum() == 0
+		return toAccountSummary(fetchHoldings());
+	}
+
+	/** Package-private and static so {@code TossApiResponseMappingTest} can pin it to a real response. */
+	static AccountSummary toAccountSummary(HoldingsResult result) {
+		BigDecimal totalValue = krwOrZero(result.marketValue() == null ? null : result.marketValue().amount());
+		BigDecimal dailyPnl = krwOrZero(result.dailyProfitLoss() == null ? null : result.dailyProfitLoss().amount());
+		// The API reports rates as fractions ("-0.0026"); our AccountSummary is in percent.
+		BigDecimal rate = result.dailyProfitLoss() == null ? null : result.dailyProfitLoss().rate();
+		BigDecimal dailyPnlRate = rate == null
 				? BigDecimal.ZERO
-				: dailyPnl.divide(totalCost, 6, RoundingMode.HALF_UP).multiply(BigDecimal.valueOf(100)).setScale(2, RoundingMode.HALF_UP);
-		return new AccountSummary(totalValue.setScale(2, RoundingMode.HALF_UP), dailyPnl.setScale(2, RoundingMode.HALF_UP), dailyPnlRate);
+				: rate.multiply(BigDecimal.valueOf(100)).setScale(2, RoundingMode.HALF_UP);
+		return new AccountSummary(
+				totalValue.setScale(2, RoundingMode.HALF_UP), dailyPnl.setScale(2, RoundingMode.HALF_UP), dailyPnlRate);
+	}
+
+	private static BigDecimal krwOrZero(CurrencyAmount amount) {
+		return amount == null || amount.krw() == null ? BigDecimal.ZERO : amount.krw();
 	}
 
 	private String requireAccountSeq() {
@@ -297,15 +332,43 @@ public class TossHttpApiClient implements TossApiClient {
 	}
 
 	@JsonIgnoreProperties(ignoreUnknown = true)
-	private record PricesEnvelope(List<QuoteDto> result) implements ResultEnvelope<QuoteDto> {
+	record PricesEnvelope(List<QuoteDto> result) implements ResultEnvelope<QuoteDto> {
 	}
 
 	@JsonIgnoreProperties(ignoreUnknown = true)
-	private record CandlesEnvelope(List<CandleDto> result) implements ResultEnvelope<CandleDto> {
+	record CandlesEnvelope(List<CandleDto> result) implements ResultEnvelope<CandleDto> {
+	}
+
+	/**
+	 * Holdings is the one endpoint whose {@code result} is an object rather than a list:
+	 * account-level aggregates plus an {@code items} array. Confirmed against a real
+	 * response; every monetary value arrives as a JSON string, and every {@code rate} is a
+	 * fraction ({@code "-0.0315"} = -3.15%).
+	 */
+	@JsonIgnoreProperties(ignoreUnknown = true)
+	record HoldingsEnvelope(HoldingsResult result) {
 	}
 
 	@JsonIgnoreProperties(ignoreUnknown = true)
-	private record HoldingsEnvelope(List<HoldingDto> result) implements ResultEnvelope<HoldingDto> {
+	record HoldingsResult(
+			CurrencyAmount totalPurchaseAmount,
+			ValueBlock marketValue,
+			PnlBlock profitLoss,
+			PnlBlock dailyProfitLoss,
+			List<HoldingDto> items) {
+	}
+
+	/** The API reports each account-level figure in both currencies. */
+	@JsonIgnoreProperties(ignoreUnknown = true)
+	record CurrencyAmount(BigDecimal krw, BigDecimal usd) {
+	}
+
+	@JsonIgnoreProperties(ignoreUnknown = true)
+	record ValueBlock(CurrencyAmount amount, CurrencyAmount amountAfterCost) {
+	}
+
+	@JsonIgnoreProperties(ignoreUnknown = true)
+	record PnlBlock(CurrencyAmount amount, BigDecimal rate) {
 	}
 
 	/**
@@ -317,19 +380,26 @@ public class TossHttpApiClient implements TossApiClient {
 	 * {@link #getQuote} for what that costs the alert conditions.
 	 */
 	@JsonIgnoreProperties(ignoreUnknown = true)
-	private record QuoteDto(
+	record QuoteDto(
 			String symbol,
 			@JsonProperty("lastPrice") BigDecimal lastPrice,
 			String currency,
 			Instant timestamp) {
 	}
 
+	/** One entry of {@code result.items}; {@code marketCountry} is "KR"/"US". */
 	@JsonIgnoreProperties(ignoreUnknown = true)
-	private record HoldingDto(
-			String symbol, Market market, String name, BigDecimal quantity, @JsonProperty("avgPrice") BigDecimal avgPrice) {
+	record HoldingDto(
+			String symbol,
+			String name,
+			String marketCountry,
+			String currency,
+			BigDecimal quantity,
+			BigDecimal lastPrice,
+			BigDecimal averagePurchasePrice) {
 	}
 
 	@JsonIgnoreProperties(ignoreUnknown = true)
-	private record CandleDto(LocalDate date, BigDecimal open, BigDecimal high, BigDecimal low, BigDecimal close, long volume) {
+	record CandleDto(LocalDate date, BigDecimal open, BigDecimal high, BigDecimal low, BigDecimal close, long volume) {
 	}
 }

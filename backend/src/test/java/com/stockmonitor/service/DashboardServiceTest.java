@@ -1,6 +1,9 @@
 package com.stockmonitor.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.stockmonitor.domain.AccountSnapshot;
@@ -41,7 +44,7 @@ class DashboardServiceTest {
 
 	@Test
 	void computesEvalAmountAndPnlFromTheLiveQuote() {
-		Holding holding = new Holding("005930", Market.KR, "삼성전자", new BigDecimal("10"), new BigDecimal("65000"));
+		Holding holding = new Holding("005930", Market.KR, "삼성전자", new BigDecimal("10"), new BigDecimal("65000"), null);
 		when(tossApiClient.getHoldings()).thenReturn(List.of(holding));
 		when(tossApiClient.getQuote("005930", Market.KR)).thenReturn(
 				new Quote("005930", Market.KR, new BigDecimal("70000"), BigDecimal.ZERO, 1000, 1000, new BigDecimal("90000"), new BigDecimal("50000"), Instant.now()));
@@ -56,8 +59,23 @@ class DashboardServiceTest {
 	}
 
 	@Test
+	void usesTheHoldingsOwnLastPriceWithoutAnExtraQuoteCall() {
+		Holding holding = new Holding(
+				"005930", Market.KR, "삼성전자", new BigDecimal("10"), new BigDecimal("65000"), new BigDecimal("70000"));
+		when(tossApiClient.getHoldings()).thenReturn(List.of(holding));
+		when(tossApiClient.getAccountSummary()).thenReturn(new AccountSummary(BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO));
+
+		DashboardResponse response = service.getDashboard();
+
+		HoldingResponse h = response.holdings().get(0);
+		assertThat(h.currentPrice()).isEqualByComparingTo("70000");
+		assertThat(h.evalAmount()).isEqualByComparingTo("700000.00");
+		verify(tossApiClient, never()).getQuote(any(), any());
+	}
+
+	@Test
 	void pnlRateIsZeroWhenCostBasisIsZero() {
-		Holding holding = new Holding("005930", Market.KR, "삼성전자", new BigDecimal("10"), BigDecimal.ZERO);
+		Holding holding = new Holding("005930", Market.KR, "삼성전자", new BigDecimal("10"), BigDecimal.ZERO, null);
 		when(tossApiClient.getHoldings()).thenReturn(List.of(holding));
 		when(tossApiClient.getQuote("005930", Market.KR)).thenReturn(
 				new Quote("005930", Market.KR, new BigDecimal("70000"), BigDecimal.ZERO, 1000, 1000, new BigDecimal("90000"), new BigDecimal("50000"), Instant.now()));
