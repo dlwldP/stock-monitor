@@ -37,8 +37,8 @@ public class MockTossApiClient implements TossApiClient {
 			"NVDA", new BigDecimal("130.00"));
 
 	private static final List<Holding> MOCK_HOLDINGS = List.of(
-			new Holding("005930", Market.KR, "삼성전자", new BigDecimal("10"), new BigDecimal("65000")),
-			new Holding("AAPL", Market.US, "Apple Inc.", new BigDecimal("5"), new BigDecimal("210.00")));
+			new Holding("005930", Market.KR, "삼성전자", new BigDecimal("10"), new BigDecimal("65000"), null),
+			new Holding("AAPL", Market.US, "Apple Inc.", new BigDecimal("5"), new BigDecimal("210.00"), null));
 
 	@Override
 	public Quote getQuote(String symbol, Market market) {
