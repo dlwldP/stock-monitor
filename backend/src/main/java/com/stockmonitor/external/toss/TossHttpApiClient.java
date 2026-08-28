@@ -2,6 +2,7 @@ package com.stockmonitor.external.toss;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.stockmonitor.config.TossApiProperties;
 import com.stockmonitor.domain.Market;
@@ -49,6 +50,7 @@ public class TossHttpApiClient implements TossApiClient {
 	private static final String PRICES_PATH = "/api/v1/prices";
 	private static final String CANDLES_PATH = "/api/v1/candles";
 	private static final String HOLDINGS_PATH = "/api/v1/holdings";
+	private static final String ACCOUNTS_PATH = "/api/v1/accounts";
 	private static final long DEFAULT_RETRY_SECONDS = 2;
 
 	private final TossApiProperties properties;
@@ -103,6 +105,17 @@ public class TossHttpApiClient implements TossApiClient {
 		return List.of(dtos).stream()
 				.map(d -> new Holding(d.symbol(), d.market(), d.name(), d.quantity(), d.avgPrice()))
 				.toList();
+	}
+
+	/**
+	 * Raw account list from {@code GET /api/v1/accounts} — no response schema is confirmed
+	 * for this endpoint yet, so this deliberately returns the untouched JSON instead of
+	 * mapping it to a DTO. Used by {@code TossDiagnosticsController} to help find the
+	 * correct {@code accountSeq} for {@link TossApiProperties#accountSeq()} when the other
+	 * endpoints fail with "account-not-found".
+	 */
+	public JsonNode getAccountsRaw() {
+		return authorizedGet(ACCOUNTS_PATH, JsonNode.class, uri -> uri, false);
 	}
 
 	@Override
