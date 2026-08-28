@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.stockmonitor.config.TossApiProperties;
 import com.stockmonitor.external.toss.TossHttpApiClient;
 import com.stockmonitor.external.toss.TossOAuthTokenProvider;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.function.Function;
 import org.springframework.beans.factory.ObjectProvider;
@@ -82,6 +83,18 @@ public class TossDiagnosticsController {
 	@GetMapping("/raw/candles")
 	public Map<String, Object> rawCandles(@RequestParam String symbol, @RequestParam(defaultValue = "5") int days) {
 		return raw("캔들", client -> client.getCandlesRaw(symbol, days));
+	}
+
+	/**
+	 * Free-form GET against any {@code /api/v1/**} path, forwarding every query param except
+	 * {@code path}. For probing endpoints whose parameter names the docs don't pin down —
+	 * e.g. {@code /api/toss/raw?path=/api/v1/candles&symbols=005930&period=DAY}.
+	 */
+	@GetMapping("/raw")
+	public Map<String, Object> rawPath(@RequestParam String path, @RequestParam Map<String, String> allParams) {
+		Map<String, String> queryParams = new LinkedHashMap<>(allParams);
+		queryParams.remove("path");
+		return raw("요청(" + path + ")", client -> client.getRaw(path, queryParams));
 	}
 
 	private Map<String, Object> raw(String label, Function<TossHttpApiClient, JsonNode> call) {

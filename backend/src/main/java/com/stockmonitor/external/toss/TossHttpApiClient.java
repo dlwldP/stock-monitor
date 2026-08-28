@@ -9,8 +9,10 @@ import com.stockmonitor.domain.Market;
 import java.io.IOException;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 import java.util.function.Function;
 import java.util.function.Supplier;
 import org.slf4j.Logger;
@@ -79,6 +81,16 @@ public class TossHttpApiClient implements TossApiClient {
 		this.restClient = RestClient.builder().baseUrl(properties.baseUrl()).requestFactory(requestFactory).build();
 	}
 
+	/**
+	 * {@inheritDoc}
+	 *
+	 * <p><b>Note:</b> {@code GET /api/v1/prices} returns only the last traded price (see
+	 * {@link QuoteDto}), so the returned {@link Quote} has {@code null}/{@code 0} for
+	 * change rate, volume and the 52-week range. Alert conditions that need those
+	 * (PCT_CHANGE, VOLUME_SPIKE, WEEK52_HIGH_NEAR, WEEK52_LOW_NEAR) simply never fire
+	 * against the real API — only PRICE_ABOVE/PRICE_BELOW work — until an endpoint
+	 * carrying that data is found. Mock mode still supports all six.
+	 */
 	@Override
 	public Quote getQuote(String symbol, Market market) {
 		// The docs' own getting-started example uses a plural "symbols" query param
@@ -91,8 +103,8 @@ public class TossHttpApiClient implements TossApiClient {
 		}
 		QuoteDto dto = dtos.get(0);
 		return new Quote(
-				symbol, market, dto.price(), dto.changeRate(), dto.volume(), dto.avgVolume(),
-				dto.week52High(), dto.week52Low(), java.time.Instant.now());
+				symbol, market, dto.lastPrice(), null, 0, 0, null, null,
+				dto.timestamp() != null ? dto.timestamp() : java.time.Instant.now());
 	}
 
 	@Override
@@ -142,6 +154,32 @@ public class TossHttpApiClient implements TossApiClient {
 				.queryParam("symbols", symbol)
 				.queryParam("interval", "1d")
 				.queryParam("count", days), false);
+	}
+
+	/**
+	 * Raw GET against an arbitrary {@code /api/v1/**} path with arbitrary query params —
+	 * a development aid for the endpoints whose request/response schemas the docs don't
+	 * pin down (e.g. finding the parameter names {@code /api/v1/candles} actually wants,
+	 * which currently answers {@code invalid-request}). The account header is sent when
+	 * {@code accountSeq} is configured.
+	 *
+	 * @param path must start with {@code /api/v1/} — this is a debugging window into the
+	 *             Toss API, not a general-purpose proxy
+	 */
+	public JsonNode getRaw(String path, Map<String, String> queryParams) {
+		if (!path.startsWith("/api/v1/")) {
+			throw new IllegalArgumentException("path는 /api/v1/ 로 시작해야 합니다: " + path);
+		}
+		String accountSeq = properties.accountSeq();
+		return authorizedGet(path, JsonNode.class,
+				uri -> {
+					UriBuilder built = uri;
+					for (Map.Entry<String, String> param : queryParams.entrySet()) {
+						built = built.queryParam(param.getKey(), param.getValue());
+					}
+					return built;
+				},
+				accountSeq != null && !accountSeq.isBlank());
 	}
 
 	@Override
@@ -270,14 +308,20 @@ public class TossHttpApiClient implements TossApiClient {
 	private record HoldingsEnvelope(List<HoldingDto> result) implements ResultEnvelope<HoldingDto> {
 	}
 
+	/**
+	 * Confirmed against a real {@code GET /api/v1/prices} response, which carries only the
+	 * last traded price:
+	 * <pre>{"symbol":"005930","timestamp":"2026-08-28T19:59:59.000+09:00","lastPrice":"256500","currency":"KRW"}</pre>
+	 * Note {@code lastPrice} arrives as a JSON string, which Jackson coerces to
+	 * {@link BigDecimal}. There is no change rate, volume or 52-week range here — see
+	 * {@link #getQuote} for what that costs the alert conditions.
+	 */
 	@JsonIgnoreProperties(ignoreUnknown = true)
 	private record QuoteDto(
-			BigDecimal price,
-			@JsonProperty("changeRate") BigDecimal changeRate,
-			long volume,
-			@JsonProperty("avgVolume") long avgVolume,
-			@JsonProperty("week52High") BigDecimal week52High,
-			@JsonProperty("week52Low") BigDecimal week52Low) {
+			String symbol,
+			@JsonProperty("lastPrice") BigDecimal lastPrice,
+			String currency,
+			Instant timestamp) {
 	}
 
 	@JsonIgnoreProperties(ignoreUnknown = true)

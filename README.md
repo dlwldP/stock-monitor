@@ -87,6 +87,8 @@ npm run dev
 | `H2_CONSOLE_ENABLED` | `true` | `/h2-console`(DB 브라우저) 노출 여부. 외부에서 접근 가능한 서버라면 `false`로 |
 | `LOG_LEVEL` | `debug` | `com.stockmonitor` 패키지 로그 레벨. 운영에서는 `info` 권장 |
 
+`/api/toss/**` 진단 엔드포인트(`raw/*` 포함)는 계좌·보유종목 원문을 그대로 돌려줍니다. 로컬 개발용이므로, 외부에 노출되는 서버라면 인증을 붙이거나 해당 컨트롤러를 빼고 배포하세요.
+
 ## 토스증권 실연동
 
 공식 문서([developers.tossinvest.com/docs](https://developers.tossinvest.com/docs))를 확인해서 반영했습니다. `TossApiClient` 인터페이스 뒤에 두 구현체가 있습니다:
@@ -96,7 +98,21 @@ npm run dev
   - **확정된 부분**: base URL(`https://openapi.tossinvest.com`), OAuth2 client-credentials 인증(`POST /oauth2/token`, form-urlencoded), 계좌·자산 API에 필요한 `X-Tossinvest-Account` 헤더, 에러 응답 포맷(`{"error":{"requestId","code","message","data"}}` → `TossApiException`), 429 레이트리밋 시 `Retry-After` 존중해서 1회 재시도. 시세·종목정보 API는 계좌와 무관해서 토큰만 있으면 호출 가능합니다.
   - **엔드포인트 경로도 확정**: 시세 `GET /api/v1/prices`, 캔들 `GET /api/v1/candles`, 보유종목 `GET /api/v1/holdings`.
   - **응답 봉투도 확정**: 실계좌로 확인한 결과 모든 응답이 `{"result": ...}` 형태로 감싸여서 옵니다. 배열을 직접 파싱하면 `Cannot deserialize ... from Object value` 에러가 납니다.
-  - **아직 미확정**: 위 세 엔드포인트의 **`result` 안쪽 필드명**(요청 파라미터명도 일부 추정). 문서 목록 페이지에는 엔드포인트만 나열되어 있고, 각 엔드포인트의 상세 요청/응답 스키마 페이지는 아직 못 봤습니다. `TossHttpApiClient.java`의 `QuoteDto`/`CandleDto`/`HoldingDto`가 그 부분이고, 클래스 상단 Javadoc에 정리해뒀습니다. `GET /api/toss/raw/*`(아래 참고)로 원문을 확인해서 맞추면 됩니다.
+  - **시세 응답 확정**: `GET /api/v1/prices`는 `{"symbol","timestamp","lastPrice","currency"}`만 돌려줍니다 (`lastPrice`는 문자열). **등락률·거래량·52주 고저가 없습니다** — 아래 "실연동 시 제약" 참고.
+  - **아직 미확정**: `/api/v1/holdings`의 `result` 안쪽 필드명, `/api/v1/candles`의 **요청 파라미터명** (현재 추정값으로 호출하면 `invalid-request` 400이 납니다). `GET /api/toss/raw/*`, `GET /api/toss/raw?path=...`(아래 참고)로 원문을 확인해서 맞추면 됩니다.
+
+### 실연동 시 제약 (Mock과의 차이)
+
+`GET /api/v1/prices`가 마지막 체결가만 돌려주기 때문에, 실연동 모드에서는 알림 조건 6개 중 **2개만 동작**합니다:
+
+| 조건 | Mock | 실연동 |
+|---|---|---|
+| 목표가 이상/이하 (PRICE_ABOVE/BELOW) | ✅ | ✅ |
+| 등락률 (PCT_CHANGE) | ✅ | ❌ 데이터 없음 |
+| 거래량 급증 (VOLUME_SPIKE) | ✅ | ❌ 데이터 없음 |
+| 52주 신고가/신저가 근접 (WEEK52_*) | ✅ | ❌ 데이터 없음 |
+
+데이터가 없는 조건은 예외를 던지지 않고 **그냥 발동하지 않습니다** (`AlertRule.isSatisfiedBy`) — 규칙 하나 때문에 폴링 전체가 죽지 않도록. 관심종목 화면의 등락률도 `-`로 표시됩니다. 등락률/거래량/52주 정보를 주는 엔드포인트를 찾으면 `TossHttpApiClient.getQuote`만 고치면 됩니다.
   - **계좌 요약(총 평가금액/손익)** 은 별도 엔드포인트가 문서에 없어서, 보유종목 목록 + 종목별 시세를 클라이언트에서 합산하는 방식으로 구현했습니다 (Mock과 동일한 방식).
 
 `TOSS_CLIENT_ID`/`TOSS_CLIENT_SECRET`을 넣어도 `TOSS_API_USE_REAL_CLIENT=true`로 **직접 켜기 전까지는** 계속 Mock이 서빙합니다 (`TossApiClientConfig`가 빈을 갈아끼움). 순서 제안:
@@ -108,6 +124,7 @@ npm run dev
    - `GET /api/toss/raw/holdings`
    - `GET /api/toss/raw/prices?symbol=005930`
    - `GET /api/toss/raw/candles?symbol=005930&days=5`
+   - `GET /api/toss/raw?path=/api/v1/candles&symbols=005930&period=DAY` — 임의의 `/api/v1/**` 경로에 임의의 쿼리 파라미터로 호출. 캔들처럼 **파라미터 이름부터 찾아야 할 때** 코드 수정 없이 시도해볼 수 있습니다.
 5. 그 다음 대시보드/관심종목 등 나머지 기능을 실 데이터로 확인하세요.
 
 ## 현재 상태 (1~3단계)
