@@ -164,12 +164,22 @@ public class TossHttpApiClient implements TossApiClient {
 			throw new RetryAfterSignal(seconds);
 		}
 
+		String body = TossErrorBodyReader.readAsText(response);
 		try {
-			TossErrorEnvelope envelope = objectMapper.readValue(response.getBody(), TossErrorEnvelope.class);
+			TossErrorEnvelope envelope = objectMapper.readValue(body, TossErrorEnvelope.class);
 			throw new TossApiException(status, envelope.error().code(), envelope.error().message(), envelope.error().requestId());
 		} catch (IOException e) {
-			throw new TossApiException(status, "unknown", "에러 응답을 파싱할 수 없습니다: " + e.getMessage(), null);
+			throw new TossApiException(status, "unknown",
+					"에러 응답을 파싱할 수 없습니다 (HTTP " + status + "). 응답 본문: " + snippet(body), null);
 		}
+	}
+
+	private static String snippet(String body) {
+		String trimmed = body.strip();
+		if (trimmed.isEmpty()) {
+			return "(empty)";
+		}
+		return trimmed.length() > 300 ? trimmed.substring(0, 300) + "..." : trimmed;
 	}
 
 	private long parseRetryAfter(ClientHttpResponse response) throws IOException {
