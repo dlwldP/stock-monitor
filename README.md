@@ -2,8 +2,10 @@
 
 토스증권 Open API를 연동해 **관심종목 알림**과 **자산 대시보드**를 한 서비스에서 제공하는 프로젝트.
 
-- 대시보드: 계좌·보유종목·관심종목 시세와 손익을 한 화면에서 확인
+- 대시보드: 계좌·보유종목·관심종목 시세와 손익, 자산 추이, 일봉 캔들 차트를 한 화면에서 확인
 - 알림: 목표가/등락률/거래량 급증 등 조건을 설정하면 디스코드·이메일·인앱으로 알림
+
+토스증권 실계좌 연동까지 동작 확인했고, API 키 없이도 Mock 시세로 전 기능이 돌아갑니다.
 
 전체 기획/설계 배경은 [`docs/PLANNING.md`](docs/PLANNING.md)에 정리되어 있습니다. 이 README는 실제 구현 스택과 실행 방법을 다룹니다.
 
@@ -39,7 +41,7 @@ cd backend
 - 기본 포트: `8080`
 - 로컬 DB: H2 파일모드 (`backend/data/`, 최초 실행 시 자동 생성, git에는 포함되지 않음)
 - 헬스체크: `GET http://localhost:8080/api/health`
-- 테스트: `./gradlew test` (도메인 로직·서비스·스케줄러·알림 디스패처 단위 테스트, Mockito 기반)
+- 테스트: `./gradlew test` — 54개. 도메인 로직(알림 조건 판정·쿨다운)·서비스·스케줄러·알림 디스패처 단위 테스트(Mockito 기반)와, 토스 API 응답 매핑을 실제 응답 구조에 고정하는 테스트
 
 ### 프론트엔드
 
@@ -54,7 +56,7 @@ npm run dev
 
 ## 환경변수 / 시크릿
 
-`client_secret`, Discord Webhook URL 등 민감정보는 코드에 커밋하지 않고 환경변수로 주입합니다. 백엔드는 다음 환경변수를 읽습니다 (`backend/src/main/resources/application.yml` 참고):
+`client_secret`, 계좌 정보, Discord Webhook URL 등 민감정보는 **레포에 커밋하지 않고** 환경변수로만 주입합니다. 이 레포에는 실제 키·계좌번호·잔고가 들어있지 않습니다 (설정 화면도 값이 아니라 "설정됨/미설정" 여부만 보여줍니다). 백엔드는 다음 환경변수를 읽습니다 (`backend/src/main/resources/application.yml` 참고):
 
 | 변수 | 설명 |
 |---|---|
@@ -91,18 +93,55 @@ npm run dev
 
 ## 토스증권 실연동
 
-공식 문서([developers.tossinvest.com/docs](https://developers.tossinvest.com/docs))를 확인해서 반영했습니다. `TossApiClient` 인터페이스 뒤에 두 구현체가 있습니다:
+**실계좌 연동 동작 확인 완료** — 대시보드(계좌 요약·보유종목), 관심종목 시세, 일봉 캔들 차트가 실제 계좌 데이터로 동작합니다.
 
-- `MockTossApiClient` — 기본값. 랜덤워크 가상 시세로 전 기능을 개발/검증했습니다.
-- `TossHttpApiClient` — 아래처럼 문서 기준으로 구현했습니다:
-  - **확정된 부분**: base URL(`https://openapi.tossinvest.com`), OAuth2 client-credentials 인증(`POST /oauth2/token`, form-urlencoded), 계좌·자산 API에 필요한 `X-Tossinvest-Account` 헤더, 에러 응답 포맷(`{"error":{"requestId","code","message","data"}}` → `TossApiException`), 429 레이트리밋 시 `Retry-After` 존중해서 1회 재시도. 시세·종목정보 API는 계좌와 무관해서 토큰만 있으면 호출 가능합니다.
-  - **엔드포인트 경로도 확정**: 시세 `GET /api/v1/prices`, 캔들 `GET /api/v1/candles`, 보유종목 `GET /api/v1/holdings`.
-  - **응답 봉투도 확정**: 실계좌로 확인한 결과 모든 응답이 `{"result": ...}` 형태로 감싸여서 옵니다. 배열을 직접 파싱하면 `Cannot deserialize ... from Object value` 에러가 납니다.
-  - **시세 응답 확정**: `GET /api/v1/prices`는 `{"symbol","timestamp","lastPrice","currency"}`만 돌려줍니다 (`lastPrice`는 문자열). **등락률·거래량·52주 고저가 없습니다** — 아래 "실연동 시 제약" 참고.
-  - **보유종목 응답 확정**: `GET /api/v1/holdings`의 `result`는 배열이 아니라 **객체**입니다. 계좌 전체 집계(`marketValue`/`profitLoss`/`dailyProfitLoss`, 각각 KRW·USD 양쪽)와 종목 배열(`items`)이 같이 들어있고, 종목마다 현재가(`lastPrice`)까지 포함되어 있습니다. 덕분에 계좌 요약은 이 응답 하나로 끝나고(종목별 시세를 다시 조회하지 않음), 일간 손익도 직접 계산하는 대신 API가 주는 값을 씁니다. `rate` 계열은 퍼센트가 아니라 **소수**입니다 (`"-0.0026"` = -0.26%). 종목의 시장 구분은 `marketCountry`(`"KR"`/`"US"`)입니다.
-  - 시세·보유종목·캔들 매핑은 실제 응답을 그대로 넣은 `TossApiResponseMappingTest`로 고정해뒀습니다 (문서가 아니라 실제 호출로 알아낸 필드명이라, 스키마가 바뀌면 조용히 0원/빈 차트로 표시되는 대신 테스트가 깨지도록).
-  - **캔들 확정**: 파라미터는 `symbol`(단수) + `interval`, 일봉 값은 **`1d`** (시험해본 다른 표기 `D`/`DAY`/`DAY_1`/`P1D` 등은 전부 "지원하지 않는 캔들 주기"). 응답 항목은 `{"timestamp","openPrice","highPrice","lowPrice","closePrice","volume","currency"}`이고 **최신순**으로 옵니다 (차트는 과거순이라 뒤집어서 사용). `count`류 파라미터는 확인된 게 없어서 보내지 않고, 받은 뒤 필요한 일수만큼 잘라 씁니다. 더 과거 데이터는 응답의 `nextBefore` 커서로 페이징할 수 있으나 아직 사용하지 않습니다.
-  - 캔들 `timestamp`는 `2026-06-08T00:00:00.000+09:00`처럼 자정+KST라서, Jackson 기본 설정(`ADJUST_DATES_TO_CONTEXT_TIME_ZONE`)으로 바인딩하면 UTC로 변환되며 **하루씩 밀립니다**. 그래서 문자열로 받아 오프셋 그대로 파싱합니다 (`CandleDto.tradingDate()`).
+`TossApiClient` 인터페이스 뒤에 두 구현체가 있고, 호출부(서비스/스케줄러/컨트롤러)는 어느 쪽이든 수정할 필요가 없습니다:
+
+- `MockTossApiClient` — **기본값**. 랜덤워크 가상 시세로 전 기능을 개발/검증했습니다. 키 없이도 앱 전체가 동작합니다.
+- `TossHttpApiClient` — 실제 API 호출. `TOSS_API_USE_REAL_CLIENT=true`로 **직접 켜기 전까지는** 키를 넣어도 계속 Mock이 서빙합니다 (`TossApiClientConfig`가 빈을 교체).
+
+### 설정 순서
+
+1. WTS **설정 > Open API** 메뉴에서 `client_id`/`client_secret` 발급, **허용 IP** 목록에 서버 IP 등록.
+   - 미등록 IP면 토큰 발급이 `403 access_denied: IP address not allowed`로 막힙니다. 가정용 인터넷은 보통 유동 IP라 IP가 바뀌면 다시 등록해야 합니다.
+2. 키를 넣고 `TOSS_API_USE_REAL_CLIENT=true`로 켠 뒤, `POST /api/toss/verify-connection`으로 **OAuth 토큰 발급만** 먼저 확인하세요 (데이터 엔드포인트는 건드리지 않습니다).
+3. `GET /api/toss/accounts`로 계좌 목록을 조회해 응답의 **`accountSeq`** 값을 `TOSS_ACCOUNT_SEQ`로 설정하세요 (보통 `1` 같은 작은 정수).
+   - **계좌번호(`accountNo`)가 아닙니다.** 계좌번호를 넣으면 `account-not-found`가 납니다.
+   - 이 엔드포인트는 `accountSeq` 없이도 동작합니다 — 그 값을 찾는 게 목적이라서요.
+4. 대시보드/관심종목/차트를 실 데이터로 확인하세요.
+
+### API 스펙 (실제 호출로 확인한 것)
+
+공식 문서([developers.tossinvest.com/docs](https://developers.tossinvest.com/docs))에는 엔드포인트 목록만 있고 요청/응답 스키마 상세는 없어서, 아래 대부분은 **실제로 호출해보고 알아낸 내용**입니다.
+
+**인증·공통**
+
+- base URL `https://openapi.tossinvest.com`, OAuth2 client-credentials (`POST /oauth2/token`, form-urlencoded)
+- 계좌·자산 API는 `X-Tossinvest-Account` 헤더 필요. 시세·캔들은 토큰만 있으면 호출 가능
+- 에러 포맷 `{"error":{"requestId","code","message","data"}}` → `TossApiException`. 단 **토큰 엔드포인트만 표준 OAuth2 포맷**(`{"error","error_description"}`)을 씁니다
+- 429면 `Retry-After`를 존중해 1회 재시도
+- 에러 응답이 **gzip으로 압축되어 올 수 있습니다.** JDK `HttpURLConnection`은 에러 스트림을 자동 해제하지 않아서, 직접 풀지 않으면 진짜 에러 메시지 대신 JSON 파싱 에러만 보입니다 (`TossErrorBodyReader`)
+- 모든 응답이 `{"result": ...}` 봉투에 감싸여 옵니다
+
+**엔드포인트별**
+
+| 엔드포인트 | 요청 | 응답 |
+|---|---|---|
+| `GET /api/v1/prices` | `symbols` | `result`는 **배열**. `{"symbol","timestamp","lastPrice","currency"}`뿐 — 등락률·거래량·52주 고저 **없음** (아래 제약 참고) |
+| `GET /api/v1/holdings` | (계좌 헤더) | `result`는 **객체**. 계좌 집계(`marketValue`/`profitLoss`/`dailyProfitLoss`, 각각 KRW·USD)와 종목 배열(`items`), 종목마다 `lastPrice` 포함 |
+| `GET /api/v1/candles` | `symbol`(단수) + `interval=1d` | `result`는 객체(배열 + `nextBefore` 커서). 항목은 `{"timestamp","openPrice",...,"volume","currency"}`, **최신순** |
+| `GET /api/v1/accounts` | — | `{"accountNo","accountSeq","accountType"}` |
+
+주의할 점 몇 가지:
+
+- **금액·수량은 전부 문자열**로 옵니다 (`"48000"`).
+- **`rate` 계열은 퍼센트가 아니라 소수**입니다 (`"-0.0026"` = -0.26%).
+- 종목의 시장 구분은 `marketCountry`(`"KR"`/`"US"`)입니다. 매핑을 빠뜨리면 미국 주식이 원화로 계산됩니다.
+- 캔들 `timestamp`는 자정+KST(`2026-06-08T00:00:00.000+09:00`)라서, Jackson 기본 설정(`ADJUST_DATES_TO_CONTEXT_TIME_ZONE`)으로 바인딩하면 UTC로 변환되며 **하루씩 밀립니다.** 그래서 문자열로 받아 오프셋 그대로 파싱합니다 (`CandleDto.tradingDate()`).
+- 캔들에 `count`류 파라미터는 확인된 게 없어서 보내지 않습니다 (모르는 필드를 보내면 요청 전체가 실패). 받은 뒤 필요한 일수만큼 잘라 씁니다. 더 과거 데이터는 `nextBefore` 커서로 페이징 가능하나 아직 사용하지 않습니다.
+- 계좌 요약은 별도 엔드포인트가 없지만 보유종목 응답이 집계를 이미 포함하고 있어서 그대로 읽습니다 (종목별 시세를 다시 조회하지 않음). Mock은 여전히 보유종목 × 시세로 합산합니다.
+
+문서가 아니라 실제 호출로 알아낸 필드명이라, 매핑은 `TossApiResponseMappingTest`로 고정해뒀습니다 — 스키마가 바뀌면 대시보드가 조용히 0원/빈 차트로 뜨는 대신 테스트가 깨집니다. (테스트 픽스처는 실제 응답의 **구조만** 재현하고 종목·금액은 가짜 값입니다.)
 
 ### 실연동 시 제약 (Mock과의 차이)
 
@@ -116,25 +155,25 @@ npm run dev
 | 52주 신고가/신저가 근접 (WEEK52_*) | ✅ | ❌ 데이터 없음 |
 
 데이터가 없는 조건은 예외를 던지지 않고 **그냥 발동하지 않습니다** (`AlertRule.isSatisfiedBy`) — 규칙 하나 때문에 폴링 전체가 죽지 않도록. 관심종목 화면의 등락률도 `-`로 표시됩니다. 등락률/거래량/52주 정보를 주는 엔드포인트를 찾으면 `TossHttpApiClient.getQuote`만 고치면 됩니다.
-  - **계좌 요약(총 평가금액/손익)** 은 별도 엔드포인트가 없지만, 위처럼 보유종목 응답이 이미 계좌 집계를 포함하고 있어서 그 값을 그대로 읽습니다. (Mock은 여전히 보유종목 × 시세로 합산합니다.)
 
-`TOSS_CLIENT_ID`/`TOSS_CLIENT_SECRET`을 넣어도 `TOSS_API_USE_REAL_CLIENT=true`로 **직접 켜기 전까지는** 계속 Mock이 서빙합니다 (`TossApiClientConfig`가 빈을 갈아끼움). 순서 제안:
+### 진단용 엔드포인트
 
-1. WTS **설정 > Open API** 메뉴에서 `client_id`/`client_secret` 발급, **허용 IP** 목록에 서버 IP 등록 (미등록 IP는 403).
-2. 키를 넣고 `TOSS_API_USE_REAL_CLIENT=true`로 켠 뒤, `POST /api/toss/verify-connection`으로 OAuth 토큰 발급만 먼저 확인하세요 (데이터 엔드포인트는 안 건드립니다).
-3. `GET /api/toss/accounts`(우리 백엔드가 대신 호출해주는 진단용 엔드포인트, `accountSeq` 없이도 동작)로 계좌 목록을 조회해 응답의 `accountSeq` 값을 `TOSS_ACCOUNT_SEQ`로 설정하세요. **계좌번호(`accountNo`)가 아닙니다** — 계좌번호를 넣으면 `account-not-found` 에러가 납니다.
-4. `QuoteDto`/`CandleDto`/`HoldingDto` 필드명을 실제 응답에 맞게 고치세요. 원문 응답은 아래 진단용 엔드포인트로 바로 확인할 수 있습니다:
-   - `GET /api/toss/raw/holdings`
-   - `GET /api/toss/raw/prices?symbol=005930`
-   - `GET /api/toss/raw/candles?symbol=005930&days=5`
-   - `GET /api/toss/raw?path=/api/v1/candles&symbol=005930&interval=1d` — 임의의 `/api/v1/**` 경로에 임의의 쿼리 파라미터로 호출. 캔들처럼 **파라미터 이름부터 찾아야 할 때** 코드 수정 없이 시도해볼 수 있습니다.
-   - `GET /api/toss/probe/candle-intervals?symbol=005930` — 캔들 주기 후보들을 한 번에 시험해서 API가 받아주는 값을 찾아줍니다.
-5. 그 다음 대시보드/관심종목 등 나머지 기능을 실 데이터로 확인하세요.
+응답 스키마를 확인하거나 문제를 좁힐 때 쓰는 것들입니다. **계좌 원문을 그대로 돌려주므로 로컬 개발용입니다** (배포 시 주의 — 위 "배포 전에 확인할 것" 참고):
+
+| 엔드포인트 | 용도 |
+|---|---|
+| `POST /api/toss/verify-connection` | OAuth 토큰 발급만 확인 |
+| `GET /api/toss/accounts` | 계좌 목록 → `accountSeq` 확인 |
+| `GET /api/toss/raw/holdings` | 보유종목 원문 JSON |
+| `GET /api/toss/raw/prices?symbol=005930` | 시세 원문 JSON |
+| `GET /api/toss/raw/candles?symbol=005930&days=5` | 캔들 원문 JSON |
+| `GET /api/toss/raw?path=/api/v1/...&아무_파라미터=값` | 임의 `/api/v1/**` 경로에 임의 파라미터로 호출. **파라미터 이름부터 찾아야 할 때** 코드 수정 없이 시도 |
+| `GET /api/toss/probe/candle-intervals?symbol=005930` | 캔들 주기 후보를 한 번에 시험 (`?intervals=A,B,C`로 후보 직접 지정) |
 
 ## 현재 상태 (1~3단계)
 
-- **토스증권 연동**: 위 "토스증권 실연동" 절 참고. `MockTossApiClient`(랜덤워크 가상 시세, 52주 고저·평균거래량·60일 캔들 포함)가 기본이고, `TossHttpApiClient`는 인증/경로/에러처리는 문서 기준으로 확정, 응답 필드 매핑만 남았습니다. 어느 쪽이든 호출부(서비스/컨트롤러)는 수정할 필요가 없습니다.
-- **관심종목**: 추가/삭제/목록 조회 (`/api/watchlist`), 실시간(모의) 시세·등락률 포함
+- **토스증권 연동**: 실계좌 연동 동작 확인 완료 (위 "토스증권 실연동" 절 참고). 기본값은 여전히 `MockTossApiClient`(랜덤워크 가상 시세, 52주 고저·평균거래량·60일 캔들 포함)이고, `TOSS_API_USE_REAL_CLIENT=true`로 켜면 실 API를 씁니다. 알림 조건 일부는 실연동에서 데이터가 없어 동작하지 않습니다 ("실연동 시 제약" 참고).
+- **관심종목**: 추가/삭제/목록 조회 (`/api/watchlist`), 시세 포함 (등락률은 Mock에서만)
 - **알림 규칙**: 목표가 이상/이하, 등락률(±N%), 거래량 급증(평균 대비 N배), 52주 신고가/신저가 근접 — 6가지 조건 × 디스코드/이메일/인앱 채널, 쿨다운, 활성/비활성 토글, 생성/삭제 (`/api/alert-rules`)
 - **스케줄러**: 60초 주기로 활성 규칙을 평가하고 조건 충족 시 알림 발송 (`PriceAlertScheduler`)
 - **알림 히스토리**: 대시보드에는 최근 알림 미리보기(`/api/alert-logs/recent`), 전용 화면에는 채널/상태 필터 + 페이지네이션을 갖춘 전체 히스토리(`/api/alert-logs`). 인앱 알림은 읽음/안읽음 상태를 관리하고(`/api/alert-logs/unread-count`, `PATCH .../{id}/read`, `POST .../mark-all-read`) 탭에 안읽음 뱃지로 표시
@@ -143,6 +182,6 @@ npm run dev
 - **다이제스트 알림**: 매일 08:00(설정 가능)에 그날 발송된 알림 요약 + 현재 자산현황을 이메일로 발송 (`DigestScheduler`), 테스트용으로 `POST /api/digest/send-now`도 있음
 - **대시보드**: 자산 요약·추이, 보유종목, 관심종목, 알림 규칙 관리를 한 화면에서 확인, 상단 탭으로 차트/알림 히스토리/설정 화면 전환
 - **설정 화면**: 원 기획서(section 8-5)의 마지막 화면. 읽기전용 — 토스 API 키/계좌번호/디스코드 웹훅/SMTP/이메일 수신주소/다이제스트 설정이 되어 있는지만 보여주고 값 자체는 노출하지 않음 (`/api/settings/status`). 값 변경은 여전히 환경변수로만
-- **미구현**: 실제 토스증권 연동, 다중 사용자/로그인 (원 기획의 `users` 테이블), Order API 연동 자동매매 — 전부 원 기획 문서에서도 선택/후순위 범위였던 부분
+- **미구현**: 다중 사용자/로그인 (원 기획의 `users` 테이블), Order API 연동 자동매매 — 둘 다 원 기획 문서에서도 선택/후순위 범위였던 부분
 
 로컬에서 백엔드+프론트엔드를 함께 띄우면(위 "시작하기" 참고) `http://localhost:5173`에서 전체 대시보드를 확인할 수 있습니다.

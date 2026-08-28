@@ -424,7 +424,7 @@ public class TossHttpApiClient implements TossApiClient {
 	/**
 	 * Confirmed against a real {@code GET /api/v1/prices} response, which carries only the
 	 * last traded price:
-	 * <pre>{"symbol":"005930","timestamp":"2026-08-28T19:59:59.000+09:00","lastPrice":"256500","currency":"KRW"}</pre>
+	 * <pre>{"symbol":"000000","timestamp":"2026-08-28T19:59:59.000+09:00","lastPrice":"48000","currency":"KRW"}</pre>
 	 * Note {@code lastPrice} arrives as a JSON string, which Jackson coerces to
 	 * {@link BigDecimal}. There is no change rate, volume or 52-week range here — see
 	 * {@link #getQuote} for what that costs the alert conditions.
@@ -450,9 +450,9 @@ public class TossHttpApiClient implements TossApiClient {
 	}
 
 	/**
-	 * Confirmed against a real {@code GET /api/v1/candles?symbol=005930&interval=1d} entry:
-	 * <pre>{"timestamp":"2026-06-08T00:00:00.000+09:00","openPrice":"304500","highPrice":"316000",
-	 * "lowPrice":"290500","closePrice":"303000","volume":"76298436","currency":"KRW"}</pre>
+	 * Confirmed against a real {@code GET /api/v1/candles?symbol=...&interval=1d} entry:
+	 * <pre>{"timestamp":"2026-06-08T00:00:00.000+09:00","openPrice":"47000","highPrice":"48500",
+	 * "lowPrice":"46500","closePrice":"48000","volume":"1200000","currency":"KRW"}</pre>
 	 * The timestamp carries the market's own offset, so its local date is the trading day.
 	 */
 	@JsonIgnoreProperties(ignoreUnknown = true)
