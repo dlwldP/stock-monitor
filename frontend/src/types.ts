@@ -16,7 +16,8 @@ export interface WatchlistItem {
   displayName: string | null
   createdAt: string
   currentPrice: number
-  changeRate: number
+  /** null when the data source doesn't provide a change rate (the real Toss price API doesn't). */
+  changeRate: number | null
 }
 
 export interface AlertRule {

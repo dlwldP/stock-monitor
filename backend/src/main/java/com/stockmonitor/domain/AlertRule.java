@@ -88,18 +88,29 @@ public class AlertRule {
 		this.cooldownMinutes = cooldownMinutes;
 	}
 
-	/** Whether the given quote satisfies this rule's condition. */
+	/**
+	 * Whether the given quote satisfies this rule's condition.
+	 *
+	 * <p>A quote may not carry every field — the real Toss price endpoint returns only the
+	 * last price, leaving change rate, volume and the 52-week range absent (see
+	 * {@code TossHttpApiClient#getQuote}). A condition whose input is missing is treated as
+	 * not satisfied rather than throwing, so one unsupported rule can't break the polling
+	 * loop for every other rule.
+	 */
 	public boolean isSatisfiedBy(Quote quote) {
 		return switch (conditionType) {
-			case PRICE_ABOVE -> quote.price().compareTo(thresholdValue) >= 0;
-			case PRICE_BELOW -> quote.price().compareTo(thresholdValue) <= 0;
-			case PCT_CHANGE -> quote.changeRate().abs().compareTo(thresholdValue) >= 0;
+			case PRICE_ABOVE -> quote.price() != null && quote.price().compareTo(thresholdValue) >= 0;
+			case PRICE_BELOW -> quote.price() != null && quote.price().compareTo(thresholdValue) <= 0;
+			case PCT_CHANGE -> quote.changeRate() != null
+					&& quote.changeRate().abs().compareTo(thresholdValue) >= 0;
 			case VOLUME_SPIKE -> quote.avgVolume() > 0
 					&& BigDecimal.valueOf(quote.volume())
 							.compareTo(BigDecimal.valueOf(quote.avgVolume()).multiply(thresholdValue)) >= 0;
-			case WEEK52_HIGH_NEAR -> quote.week52High().signum() > 0
+			case WEEK52_HIGH_NEAR -> quote.week52High() != null && quote.price() != null
+					&& quote.week52High().signum() > 0
 					&& percentGap(quote.week52High(), quote.price()).compareTo(thresholdValue) <= 0;
-			case WEEK52_LOW_NEAR -> quote.week52Low().signum() > 0
+			case WEEK52_LOW_NEAR -> quote.week52Low() != null && quote.price() != null
+					&& quote.week52Low().signum() > 0
 					&& percentGap(quote.week52Low(), quote.price()).compareTo(thresholdValue) <= 0;
 		};
 	}

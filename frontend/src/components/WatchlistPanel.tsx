@@ -77,7 +77,9 @@ export function WatchlistPanel({ items, loading, onAdd, onDelete, onAddAlertRule
                   {item.displayName || item.symbol} <span className="muted">({item.symbol})</span>
                 </td>
                 <td>{formatNumber(item.currentPrice)}</td>
-                <td className={pnlClass(item.changeRate)}>{formatNumber(item.changeRate, { signed: true })}%</td>
+                <td className={pnlClass(item.changeRate)}>
+                  {item.changeRate == null ? '-' : `${formatNumber(item.changeRate, { signed: true })}%`}
+                </td>
                 <td className="row-actions">
                   <button type="button" onClick={() => onAddAlertRule(item.symbol, item.market)}>
                     알림 추가
