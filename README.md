@@ -60,7 +60,7 @@ npm run dev
 |---|---|
 | `TOSS_CLIENT_ID` | 토스증권 Open API client ID (WTS 설정 > Open API 메뉴에서 발급) |
 | `TOSS_CLIENT_SECRET` | 토스증권 Open API client secret |
-| `TOSS_ACCOUNT_SEQ` | 계좌·자산/주문 API에 필요한 `X-Tossinvest-Account` 헤더 값. `GET /api/v1/accounts`로 계좌 목록 조회 후 확인 |
+| `TOSS_ACCOUNT_SEQ` | 계좌·자산/주문 API에 필요한 `X-Tossinvest-Account` 헤더 값. 계좌번호(`accountNo`)가 아니라 **`accountSeq`** 값입니다 (보통 `1` 같은 작은 정수). `GET /api/toss/accounts`로 확인 |
 | `TOSS_API_USE_REAL_CLIENT` | `true`로 설정하면 `MockTossApiClient` 대신 실제 API를 호출하는 `TossHttpApiClient`를 사용 (기본값 `false`) |
 
 `TOSS_API_USE_REAL_CLIENT`는 **키를 넣어도 자동으로 켜지지 않습니다.** 아래 "토스증권 실연동" 절을 먼저 읽어보세요.
@@ -95,15 +95,19 @@ npm run dev
 - `TossHttpApiClient` — 아래처럼 문서 기준으로 구현했습니다:
   - **확정된 부분**: base URL(`https://openapi.tossinvest.com`), OAuth2 client-credentials 인증(`POST /oauth2/token`, form-urlencoded), 계좌·자산 API에 필요한 `X-Tossinvest-Account` 헤더, 에러 응답 포맷(`{"error":{"requestId","code","message","data"}}` → `TossApiException`), 429 레이트리밋 시 `Retry-After` 존중해서 1회 재시도. 시세·종목정보 API는 계좌와 무관해서 토큰만 있으면 호출 가능합니다.
   - **엔드포인트 경로도 확정**: 시세 `GET /api/v1/prices`, 캔들 `GET /api/v1/candles`, 보유종목 `GET /api/v1/holdings`.
-  - **아직 미확정**: 위 세 엔드포인트의 **정확한 응답 필드명**(요청 파라미터명도 일부 추정). 문서 목록 페이지에는 엔드포인트만 나열되어 있고, 각 엔드포인트의 상세 요청/응답 스키마 페이지는 아직 못 봤습니다. `TossHttpApiClient.java`의 `QuoteDto`/`CandleDto`/`HoldingDto`가 그 부분이고, 클래스 상단 Javadoc에 정리해뒀습니다. 그 페이지들을 붙여넣어 주시면 마저 고치겠습니다.
+  - **응답 봉투도 확정**: 실계좌로 확인한 결과 모든 응답이 `{"result": ...}` 형태로 감싸여서 옵니다. 배열을 직접 파싱하면 `Cannot deserialize ... from Object value` 에러가 납니다.
+  - **아직 미확정**: 위 세 엔드포인트의 **`result` 안쪽 필드명**(요청 파라미터명도 일부 추정). 문서 목록 페이지에는 엔드포인트만 나열되어 있고, 각 엔드포인트의 상세 요청/응답 스키마 페이지는 아직 못 봤습니다. `TossHttpApiClient.java`의 `QuoteDto`/`CandleDto`/`HoldingDto`가 그 부분이고, 클래스 상단 Javadoc에 정리해뒀습니다. `GET /api/toss/raw/*`(아래 참고)로 원문을 확인해서 맞추면 됩니다.
   - **계좌 요약(총 평가금액/손익)** 은 별도 엔드포인트가 문서에 없어서, 보유종목 목록 + 종목별 시세를 클라이언트에서 합산하는 방식으로 구현했습니다 (Mock과 동일한 방식).
 
 `TOSS_CLIENT_ID`/`TOSS_CLIENT_SECRET`을 넣어도 `TOSS_API_USE_REAL_CLIENT=true`로 **직접 켜기 전까지는** 계속 Mock이 서빙합니다 (`TossApiClientConfig`가 빈을 갈아끼움). 순서 제안:
 
 1. WTS **설정 > Open API** 메뉴에서 `client_id`/`client_secret` 발급, **허용 IP** 목록에 서버 IP 등록 (미등록 IP는 403).
 2. 키를 넣고 `TOSS_API_USE_REAL_CLIENT=true`로 켠 뒤, `POST /api/toss/verify-connection`으로 OAuth 토큰 발급만 먼저 확인하세요 (데이터 엔드포인트는 안 건드립니다).
-3. `GET /api/toss/accounts`(우리 백엔드가 대신 호출해주는 진단용 엔드포인트, `accountSeq` 없이도 동작)로 계좌 목록을 조회해 `accountSeq`를 확인하고 `TOSS_ACCOUNT_SEQ`로 설정하세요.
-4. `QuoteDto`/`CandleDto`/`HoldingDto` 필드명을 실제 응답에 맞게 고치세요 (postman이나 curl로 실제 응답을 한 번 찍어보는 게 제일 빠릅니다).
+3. `GET /api/toss/accounts`(우리 백엔드가 대신 호출해주는 진단용 엔드포인트, `accountSeq` 없이도 동작)로 계좌 목록을 조회해 응답의 `accountSeq` 값을 `TOSS_ACCOUNT_SEQ`로 설정하세요. **계좌번호(`accountNo`)가 아닙니다** — 계좌번호를 넣으면 `account-not-found` 에러가 납니다.
+4. `QuoteDto`/`CandleDto`/`HoldingDto` 필드명을 실제 응답에 맞게 고치세요. 원문 응답은 아래 진단용 엔드포인트로 바로 확인할 수 있습니다:
+   - `GET /api/toss/raw/holdings`
+   - `GET /api/toss/raw/prices?symbol=005930`
+   - `GET /api/toss/raw/candles?symbol=005930&days=5`
 5. 그 다음 대시보드/관심종목 등 나머지 기능을 실 데이터로 확인하세요.
 
 ## 현재 상태 (1~3단계)
