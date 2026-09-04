@@ -7,7 +7,9 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.stockmonitor.domain.Market;
+import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.OffsetDateTime;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
@@ -152,6 +154,71 @@ class TossApiResponseMappingTest {
 		assertThat(result).hasSize(1);
 		assertThat(result.get(0).symbol()).isEqualTo("000000");
 		assertThat(result.get(0).lastPrice()).isEqualByComparingTo("48000");
-		assertThat(result.get(0).timestamp()).isEqualTo("2026-08-28T10:59:59Z");
+	}
+
+	@Test
+	void parsesThePriceTimestampWithoutNormalizingItsOffsetAway() throws Exception {
+		// Same class of bug as the candle date shift: binding this as Instant/OffsetDateTime
+		// directly would let Jackson's default ADJUST_DATES_TO_CONTEXT_TIME_ZONE convert it to
+		// UTC before this code ever sees the market's own trading day.
+		var result = objectMapper.readValue(PRICES_RESPONSE, TossHttpApiClient.PricesEnvelope.class).result();
+
+		OffsetDateTime timestamp = result.get(0).parsedTimestamp();
+		assertThat(timestamp.toLocalDate()).isEqualTo(LocalDate.of(2026, 8, 28));
+		assertThat(timestamp.getOffset()).isEqualTo(java.time.ZoneOffset.ofHours(9));
+	}
+
+	@Test
+	void enrichmentComputesChangeRateFromThePreviousTradingDaysClose() {
+		TossHttpApiClient.QuoteEnrichment enrichment =
+				TossHttpApiClient.computeEnrichment(threeSampleCandles(), new BigDecimal("48960"), LocalDate.of(2026, 6, 9));
+
+		// 48960 vs the 06-08 close (48000): +2%.
+		assertThat(enrichment.changeRate()).isEqualByComparingTo("2.00");
+	}
+
+	@Test
+	void enrichmentLeavesChangeRateNullWithNoPriorTradingDay() {
+		TossHttpApiClient.QuoteEnrichment enrichment =
+				TossHttpApiClient.computeEnrichment(threeSampleCandles(), new BigDecimal("45000"), LocalDate.of(2026, 6, 4));
+
+		assertThat(enrichment.changeRate()).isNull();
+	}
+
+	@Test
+	void enrichmentWidensThe52WeekRangeWithTheLivePriceWithoutLosingHistoricalExtremes() {
+		// Live price makes a new high; historical low (45000 on 06-04) should still win the low.
+		TossHttpApiClient.QuoteEnrichment enrichment =
+				TossHttpApiClient.computeEnrichment(threeSampleCandles(), new BigDecimal("50000"), LocalDate.of(2026, 6, 9));
+
+		assertThat(enrichment.week52High()).isEqualByComparingTo("50000");
+		assertThat(enrichment.week52Low()).isEqualByComparingTo("45000");
+	}
+
+	@Test
+	void enrichmentReadsVolumeFromTheMostRecentCandleAndAveragesThePriorDays() {
+		TossHttpApiClient.QuoteEnrichment enrichment =
+				TossHttpApiClient.computeEnrichment(threeSampleCandles(), new BigDecimal("48000"), LocalDate.of(2026, 6, 9));
+
+		assertThat(enrichment.volume()).isEqualTo(1_200_000L);
+		// average of the two prior days (980000, 1050000), not including today's own volume.
+		assertThat(enrichment.avgVolume()).isEqualTo(1_015_000L);
+	}
+
+	@Test
+	void enrichmentIsEmptyWithNoCandleHistory() {
+		TossHttpApiClient.QuoteEnrichment enrichment =
+				TossHttpApiClient.computeEnrichment(List.of(), new BigDecimal("48000"), LocalDate.of(2026, 6, 9));
+
+		assertThat(enrichment).isEqualTo(TossHttpApiClient.QuoteEnrichment.EMPTY);
+	}
+
+	/** The three candles from {@link #CANDLES_RESPONSE}, already mapped to {@link Candle}. */
+	private List<Candle> threeSampleCandles() {
+		try {
+			return candlesFrom(CANDLES_RESPONSE, 60);
+		} catch (Exception e) {
+			throw new RuntimeException(e);
+		}
 	}
 }

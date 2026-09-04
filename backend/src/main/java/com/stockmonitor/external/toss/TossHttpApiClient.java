@@ -9,6 +9,7 @@ import com.stockmonitor.domain.Market;
 import java.io.IOException;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
@@ -17,6 +18,7 @@ import java.util.Comparator;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
 import java.util.function.Supplier;
 import org.slf4j.Logger;
@@ -52,6 +54,11 @@ import org.springframework.web.util.UriBuilder;
  * (exposed as {@code GET /api/toss/raw/*}, plus a free-form {@code GET /api/toss/raw?path=...})
  * dump untouched JSON, which is how each of these was worked out and how the next one can be.
  *
+ * <p>{@code /api/v1/prices} alone doesn't carry change rate, volume or a 52-week range, which
+ * four of the six alert conditions need — {@link #getQuote} derives them from
+ * {@link #getDailyCandles} instead of leaving those conditions permanently unsupported; see its
+ * Javadoc for what that derivation can and can't guarantee.
+ *
  * <p>This bean only activates when {@code toss.api.use-real-client=true} (see
  * {@link TossApiProperties}) — until then {@link MockTossApiClient} keeps serving the
  * app, so adding real credentials alone doesn't switch anything over silently.
@@ -67,6 +74,12 @@ public class TossHttpApiClient implements TossApiClient {
 	/** The one daily-interval spelling the API accepts — see {@link #getDailyCandles}. */
 	private static final String DAILY_INTERVAL = "1d";
 	private static final long DEFAULT_RETRY_SECONDS = 2;
+	/** Best-effort candle window for deriving change rate/volume/52-week range — see {@link #getQuote}. */
+	private static final int CANDLE_LOOKBACK_DAYS = 400;
+	private static final int AVG_VOLUME_WINDOW = 20;
+	private static final long CANDLE_CACHE_TTL_MINUTES = 30;
+
+	private final Map<String, CachedCandles> candleCache = new ConcurrentHashMap<>();
 
 	private final TossApiProperties properties;
 	private final TossOAuthTokenProvider tokenProvider;
@@ -92,11 +105,33 @@ public class TossHttpApiClient implements TossApiClient {
 	 * {@inheritDoc}
 	 *
 	 * <p><b>Note:</b> {@code GET /api/v1/prices} returns only the last traded price (see
-	 * {@link QuoteDto}), so the returned {@link Quote} has {@code null}/{@code 0} for
-	 * change rate, volume and the 52-week range. Alert conditions that need those
-	 * (PCT_CHANGE, VOLUME_SPIKE, WEEK52_HIGH_NEAR, WEEK52_LOW_NEAR) simply never fire
-	 * against the real API — only PRICE_ABOVE/PRICE_BELOW work — until an endpoint
-	 * carrying that data is found. Mock mode still supports all six.
+	 * {@link QuoteDto}), so change rate, volume and the 52-week range aren't in this
+	 * response. Rather than leave the four alert conditions that need them permanently
+	 * unsupported in real mode, this derives them from {@link #getDailyCandles} — which
+	 * already has daily high/low/volume/close confirmed working:
+	 *
+	 * <ul>
+	 *   <li>{@code changeRate}: {@code lastPrice} vs. the close of the most recent candle
+	 *       strictly before today.
+	 *   <li>{@code volume}/{@code avgVolume}: the most recent candle's volume, against the
+	 *       average of the trailing {@value #AVG_VOLUME_WINDOW} prior candles — "the most
+	 *       recent complete day's volume vs. a trailing baseline", since nothing confirmed
+	 *       here carries live intraday volume the way a broker terminal would.
+	 *   <li>{@code week52High}/{@code week52Low}: the max/min across whatever candle history
+	 *       {@link #getDailyCandles} returns (capped at {@value #CANDLE_LOOKBACK_DAYS} days),
+	 *       widened by {@code lastPrice} in case today is itself a new extreme. This is a
+	 *       best-effort window, not a guaranteed 252 trading days — the real API doesn't take
+	 *       a count parameter (see {@link #getDailyCandles}), so how far back its default
+	 *       history goes is whatever it happens to return; use {@code GET /api/toss/raw/candles}
+	 *       to check for a given symbol.
+	 * </ul>
+	 *
+	 * <p>Candle history is cached per symbol for {@value #CANDLE_CACHE_TTL_MINUTES} minutes
+	 * (it moves once a day, not once a minute) so this doesn't double the API traffic of every
+	 * {@link com.stockmonitor.scheduler.PriceAlertScheduler} tick. If fetching it fails for any
+	 * reason, this quote still returns with the derived fields left at their empty defaults
+	 * rather than failing the whole quote — {@code PRICE_ABOVE}/{@code PRICE_BELOW} shouldn't
+	 * go down because the candles call had a bad moment.
 	 */
 	@Override
 	public Quote getQuote(String symbol, Market market) {
@@ -109,9 +144,81 @@ public class TossHttpApiClient implements TossApiClient {
 			throw new IllegalStateException("시세 응답이 비어있습니다: " + symbol);
 		}
 		QuoteDto dto = dtos.get(0);
+		OffsetDateTime timestamp = dto.parsedTimestamp();
+		QuoteEnrichment enrichment = enrich(symbol, market, dto.lastPrice(), timestamp.toLocalDate());
 		return new Quote(
-				symbol, market, dto.lastPrice(), null, 0, 0, null, null,
-				dto.timestamp() != null ? dto.timestamp() : java.time.Instant.now());
+				symbol, market, dto.lastPrice(), enrichment.changeRate(), enrichment.volume(),
+				enrichment.avgVolume(), enrichment.week52High(), enrichment.week52Low(), timestamp.toInstant());
+	}
+
+	private QuoteEnrichment enrich(String symbol, Market market, BigDecimal lastPrice, LocalDate quoteDate) {
+		List<Candle> candles;
+		try {
+			candles = cachedDailyCandles(symbol, market);
+		} catch (RuntimeException e) {
+			log.warn("Could not derive change rate/volume/52-week range for {} from candles: {}", symbol, e.getMessage());
+			return QuoteEnrichment.EMPTY;
+		}
+		return computeEnrichment(candles, lastPrice, quoteDate);
+	}
+
+	/**
+	 * Package-private, static and pure (no network) so {@code TossApiResponseMappingTest} can
+	 * exercise the derivation directly — see {@link #getQuote}'s Javadoc for what each field
+	 * means and why.
+	 */
+	static QuoteEnrichment computeEnrichment(List<Candle> candles, BigDecimal lastPrice, LocalDate quoteDate) {
+		if (candles.isEmpty()) {
+			return QuoteEnrichment.EMPTY;
+		}
+
+		BigDecimal week52High = candles.stream().map(Candle::high).max(Comparator.naturalOrder()).get().max(lastPrice);
+		BigDecimal week52Low = candles.stream().map(Candle::low).min(Comparator.naturalOrder()).get().min(lastPrice);
+
+		List<Candle> priorDays = candles.stream().filter(c -> c.date().isBefore(quoteDate)).toList();
+		BigDecimal changeRate = null;
+		if (!priorDays.isEmpty()) {
+			BigDecimal previousClose = priorDays.get(priorDays.size() - 1).close();
+			if (previousClose.signum() != 0) {
+				changeRate = lastPrice.subtract(previousClose)
+						.divide(previousClose, 6, RoundingMode.HALF_UP)
+						.multiply(BigDecimal.valueOf(100))
+						.setScale(2, RoundingMode.HALF_UP);
+			}
+		}
+
+		// Deliberately structural (last candle vs. everything before it) rather than
+		// quoteDate-based like changeRate above: candles.getLast() is "the most recent day we
+		// have," whether or not the live quote's own trading day happens to match it, and
+		// baselining against every candle up to but not including it avoids double-counting
+		// that same day into its own average.
+		long volume = candles.get(candles.size() - 1).volume();
+		List<Candle> volumeBaseline = candles.size() > 1 ? candles.subList(0, candles.size() - 1) : List.of();
+		List<Candle> avgWindow = volumeBaseline.size() > AVG_VOLUME_WINDOW
+				? volumeBaseline.subList(volumeBaseline.size() - AVG_VOLUME_WINDOW, volumeBaseline.size())
+				: volumeBaseline;
+		long avgVolume = avgWindow.isEmpty() ? 0 : (long) avgWindow.stream().mapToLong(Candle::volume).average().orElse(0);
+
+		return new QuoteEnrichment(changeRate, volume, avgVolume, week52High, week52Low);
+	}
+
+	/** Best-effort derived fields for {@link #getQuote} — see its Javadoc for how each is computed. */
+	record QuoteEnrichment(BigDecimal changeRate, long volume, long avgVolume, BigDecimal week52High, BigDecimal week52Low) {
+		static final QuoteEnrichment EMPTY = new QuoteEnrichment(null, 0, 0, null, null);
+	}
+
+	private List<Candle> cachedDailyCandles(String symbol, Market market) {
+		String key = market + ":" + symbol;
+		CachedCandles cached = candleCache.get(key);
+		if (cached != null && Duration.between(cached.fetchedAt(), Instant.now()).toMinutes() < CANDLE_CACHE_TTL_MINUTES) {
+			return cached.candles();
+		}
+		List<Candle> fresh = getDailyCandles(symbol, market, CANDLE_LOOKBACK_DAYS);
+		candleCache.put(key, new CachedCandles(fresh, Instant.now()));
+		return fresh;
+	}
+
+	private record CachedCandles(List<Candle> candles, Instant fetchedAt) {
 	}
 
 	/**
@@ -426,15 +533,24 @@ public class TossHttpApiClient implements TossApiClient {
 	 * last traded price:
 	 * <pre>{"symbol":"000000","timestamp":"2026-08-28T19:59:59.000+09:00","lastPrice":"48000","currency":"KRW"}</pre>
 	 * Note {@code lastPrice} arrives as a JSON string, which Jackson coerces to
-	 * {@link BigDecimal}. There is no change rate, volume or 52-week range here — see
-	 * {@link #getQuote} for what that costs the alert conditions.
+	 * {@link BigDecimal}. There's no change rate, volume or 52-week range in this endpoint
+	 * itself — {@link #getQuote} derives those from {@link #getDailyCandles}.
+	 *
+	 * <p>{@code timestamp} is kept as a String and parsed with the offset preserved, the same
+	 * reason as {@link CandleDto}: binding it as {@code Instant}/{@code OffsetDateTime} would
+	 * let Jackson's {@code ADJUST_DATES_TO_CONTEXT_TIME_ZONE} normalize it to UTC before this
+	 * code ever sees it, and the trading-day math below needs the market's own calendar day.
 	 */
 	@JsonIgnoreProperties(ignoreUnknown = true)
 	record QuoteDto(
 			String symbol,
 			@JsonProperty("lastPrice") BigDecimal lastPrice,
 			String currency,
-			Instant timestamp) {
+			String timestamp) {
+
+		OffsetDateTime parsedTimestamp() {
+			return timestamp != null ? OffsetDateTime.parse(timestamp) : OffsetDateTime.now();
+		}
 	}
 
 	/** One entry of {@code result.items}; {@code marketCountry} is "KR"/"US". */
