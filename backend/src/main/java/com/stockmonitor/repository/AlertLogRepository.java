@@ -37,4 +37,7 @@ public interface AlertLogRepository extends JpaRepository<AlertLog, Long> {
 
 	/** Called before deleting an AlertRule, since alert_logs.alert_rule_id is NOT NULL (no orphaning). */
 	void deleteByAlertRuleId(Long alertRuleId);
+
+	/** Retention: drops delivered-notification records past their useful life. Returns the row count. */
+	int deleteByTriggeredAtBefore(Instant cutoff);
 }

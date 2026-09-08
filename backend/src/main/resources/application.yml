@@ -82,6 +82,15 @@ digest:
   enabled: true
   cron: "0 0 8 * * *"
 
+# Housekeeping for the two tables that grow on a timer (see RetentionService).
+# Alert logs are deleted outright; snapshots older than snapshot-keep-all-days are
+# thinned to one per day instead, so the 자산 추이 chart keeps its long-term history.
+retention:
+  enabled: true
+  cron: "0 30 3 * * *"
+  alert-log-days: 90
+  snapshot-keep-all-days: 30
+
 logging:
   level:
     com.stockmonitor: ${LOG_LEVEL:debug}
