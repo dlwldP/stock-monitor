@@ -1,22 +1,49 @@
 package com.stockmonitor.external.toss;
 
 import com.stockmonitor.domain.Market;
+import java.util.Collection;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Abstraction over the Toss Securities Open API.
  *
- * <p><b>Status:</b> no real implementation exists yet — the actual endpoint paths, auth
- * flow (OAuth2 client-credentials per docs/PLANNING.md section 5) and request/response
- * shapes aren't documented anywhere this codebase could verify against. Everything in
- * the app is written against this interface only, so a {@code TossHttpApiClient} can be
- * dropped in later (see {@link MockTossApiClient}, the only bean implementing this today)
- * without touching callers.
+ * <p>Two implementations: {@link MockTossApiClient} (the default, random-walk prices, so the
+ * app runs with no credentials at all) and {@link TossHttpApiClient} (the real API, active
+ * only when {@code toss.api.use-real-client=true}). Everything else in the app is written
+ * against this interface, so neither one leaks into callers.
  */
 public interface TossApiClient {
 
 	/** Latest quote for a single symbol. */
 	Quote getQuote(String symbol, Market market);
+
+	/**
+	 * Latest quotes for several symbols at once.
+	 *
+	 * <p>Callers that need more than one quote should prefer this over a loop of
+	 * {@link #getQuote}: an implementation backed by a rate-limited HTTP API can serve the
+	 * whole set in one request, which matters because both the alert scheduler and the
+	 * watchlist screen routinely ask for many symbols at once (and often the same symbol
+	 * more than once).
+	 *
+	 * <p>The returned map holds an entry only for symbols that could actually be fetched —
+	 * one bad symbol doesn't fail the batch — so callers must handle absence. Duplicate refs
+	 * collapse to one lookup.
+	 *
+	 * <p>The default implementation just loops, which is the right behaviour for a local
+	 * implementation with no per-request cost.
+	 */
+	default Map<SymbolRef, Quote> getQuotes(Collection<SymbolRef> refs) {
+		Map<SymbolRef, Quote> quotes = new LinkedHashMap<>();
+		for (SymbolRef ref : refs) {
+			if (!quotes.containsKey(ref)) {
+				quotes.put(ref, getQuote(ref.symbol(), ref.market()));
+			}
+		}
+		return quotes;
+	}
 
 	/** Account-level totals (평가금액 / 당일 손익). */
 	AccountSummary getAccountSummary();

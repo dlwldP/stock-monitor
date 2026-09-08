@@ -14,13 +14,17 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Comparator;
 import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Function;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpRequest;
@@ -80,6 +84,8 @@ public class TossHttpApiClient implements TossApiClient {
 	private static final long CANDLE_CACHE_TTL_MINUTES = 30;
 
 	private final Map<String, CachedCandles> candleCache = new ConcurrentHashMap<>();
+	/** Flipped off for good the first time a multi-symbol price request comes back single — see {@link #getQuotes}. */
+	private final AtomicBoolean batchedPricesSupported = new AtomicBoolean(true);
 
 	private final TossApiProperties properties;
 	private final TossOAuthTokenProvider tokenProvider;
@@ -143,11 +149,87 @@ public class TossHttpApiClient implements TossApiClient {
 		if (dtos.isEmpty()) {
 			throw new IllegalStateException("시세 응답이 비어있습니다: " + symbol);
 		}
-		QuoteDto dto = dtos.get(0);
+		return toQuote(new SymbolRef(symbol, market), dtos.get(0));
+	}
+
+	/**
+	 * {@inheritDoc}
+	 *
+	 * <p>Sends every symbol in one request, since the parameter is named {@code symbols}
+	 * (plural) — the docs never spell out whether it accepts a list, so this verifies the
+	 * behaviour at runtime rather than assuming it: if a multi-symbol request comes back with
+	 * exactly one result, the endpoint is treated as single-symbol from then on and this falls
+	 * back to one call per symbol for the rest of the process's life. Either way callers get
+	 * the same map, and the worst case costs one extra round trip once.
+	 *
+	 * <p>Symbols missing from an otherwise multi-symbol response are retried individually, so
+	 * one unknown ticker can't blank out the rest of the batch.
+	 */
+	@Override
+	public Map<SymbolRef, Quote> getQuotes(Collection<SymbolRef> refs) {
+		List<SymbolRef> distinct = refs.stream().distinct().toList();
+		if (distinct.isEmpty()) {
+			return Map.of();
+		}
+		if (distinct.size() == 1 || !batchedPricesSupported.get()) {
+			return fetchIndividually(distinct);
+		}
+
+		String joinedSymbols = distinct.stream().map(SymbolRef::symbol).collect(Collectors.joining(","));
+		List<QuoteDto> dtos;
+		try {
+			dtos = unwrap(authorizedGet(PRICES_PATH, PricesEnvelope.class,
+					uri -> uri.queryParam("symbols", joinedSymbols), false));
+		} catch (RuntimeException e) {
+			log.warn("Batched price request for {} symbols failed, falling back to one call each: {}",
+					distinct.size(), e.getMessage());
+			return fetchIndividually(distinct);
+		}
+
+		if (dtos.size() == 1) {
+			log.info("GET {} returned 1 result for {} requested symbols — treating it as single-symbol only from now on.",
+					PRICES_PATH, distinct.size());
+			batchedPricesSupported.set(false);
+			return fetchIndividually(distinct);
+		}
+
+		Map<String, QuoteDto> bySymbol = dtos.stream()
+				.collect(Collectors.toMap(QuoteDto::symbol, Function.identity(), (first, duplicate) -> first));
+		Map<SymbolRef, Quote> quotes = new LinkedHashMap<>();
+		List<SymbolRef> missing = new ArrayList<>();
+		for (SymbolRef ref : distinct) {
+			QuoteDto dto = bySymbol.get(ref.symbol());
+			if (dto == null) {
+				missing.add(ref);
+			} else {
+				quotes.put(ref, toQuote(ref, dto));
+			}
+		}
+		if (!missing.isEmpty()) {
+			log.warn("Batched price response omitted {} of {} symbols, retrying those individually", missing.size(), distinct.size());
+			quotes.putAll(fetchIndividually(missing));
+		}
+		return quotes;
+	}
+
+	/** One request per symbol, keeping a single failure from taking the rest of the set down with it. */
+	private Map<SymbolRef, Quote> fetchIndividually(List<SymbolRef> refs) {
+		Map<SymbolRef, Quote> quotes = new LinkedHashMap<>();
+		for (SymbolRef ref : refs) {
+			try {
+				quotes.put(ref, getQuote(ref.symbol(), ref.market()));
+			} catch (RuntimeException e) {
+				log.warn("Could not fetch quote for {} ({}): {}", ref.symbol(), ref.market(), e.getMessage());
+			}
+		}
+		return quotes;
+	}
+
+	private Quote toQuote(SymbolRef ref, QuoteDto dto) {
 		OffsetDateTime timestamp = dto.parsedTimestamp();
-		QuoteEnrichment enrichment = enrich(symbol, market, dto.lastPrice(), timestamp.toLocalDate());
+		QuoteEnrichment enrichment = enrich(ref.symbol(), ref.market(), dto.lastPrice(), timestamp.toLocalDate());
 		return new Quote(
-				symbol, market, dto.lastPrice(), enrichment.changeRate(), enrichment.volume(),
+				ref.symbol(), ref.market(), dto.lastPrice(), enrichment.changeRate(), enrichment.volume(),
 				enrichment.avgVolume(), enrichment.week52High(), enrichment.week52Low(), timestamp.toInstant());
 	}
 

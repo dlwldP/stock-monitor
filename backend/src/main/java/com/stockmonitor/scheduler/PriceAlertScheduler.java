@@ -2,12 +2,14 @@ package com.stockmonitor.scheduler;
 
 import com.stockmonitor.domain.AlertRule;
 import com.stockmonitor.external.toss.Quote;
+import com.stockmonitor.external.toss.SymbolRef;
 import com.stockmonitor.external.toss.TossApiClient;
 import com.stockmonitor.notification.AlertTriggeredEvent;
 import com.stockmonitor.notification.NotificationDispatcher;
 import com.stockmonitor.repository.AlertRuleRepository;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -44,10 +46,20 @@ public class PriceAlertScheduler {
 			return;
 		}
 
+		// One batched lookup per tick rather than one call per rule: several rules on the same
+		// symbol are common (a target price and a 52-week alert on the same stock), and each
+		// used to cost its own request every 60 seconds against a rate-limited API.
+		Map<SymbolRef, Quote> quotes = tossApiClient.getQuotes(
+				rules.stream().map(rule -> new SymbolRef(rule.getSymbol(), rule.getMarket())).toList());
+
 		Instant now = Instant.now();
 		for (AlertRule rule : rules) {
 			try {
-				Quote quote = tossApiClient.getQuote(rule.getSymbol(), rule.getMarket());
+				Quote quote = quotes.get(new SymbolRef(rule.getSymbol(), rule.getMarket()));
+				if (quote == null) {
+					// Already logged by the client; skip this rule rather than firing on nothing.
+					continue;
+				}
 				if (rule.isSatisfiedBy(quote) && rule.isCooldownElapsed(now)) {
 					dispatcher.dispatch(new AlertTriggeredEvent(rule, quote, now));
 					rule.setLastTriggeredAt(now); // managed entity: flushed at transaction commit
