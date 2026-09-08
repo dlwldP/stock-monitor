@@ -51,6 +51,14 @@ public interface TossApiClient {
 	/** Currently held positions. */
 	List<Holding> getHoldings();
 
+	/**
+	 * Orders placed but not fully filled yet (미체결 주문).
+	 *
+	 * <p>Holdings only show settled positions, so without this there's no way to see that an
+	 * order is in flight — the gap between placing one and it appearing in the account.
+	 */
+	List<PendingOrder> getPendingOrders();
+
 	/** Daily OHLCV bars, oldest first, for the candlestick chart. */
 	List<Candle> getDailyCandles(String symbol, Market market, int days);
 }

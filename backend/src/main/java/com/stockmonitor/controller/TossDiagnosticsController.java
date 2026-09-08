@@ -93,6 +93,12 @@ public class TossDiagnosticsController {
 		return raw("캔들", client -> client.getCandlesRaw(symbol, days));
 	}
 
+	/** The orders endpoint is entirely unverified, so this is how to find out what it really answers. */
+	@GetMapping("/raw/orders")
+	public Map<String, Object> rawOrders() {
+		return raw("미체결 주문", TossHttpApiClient::getPendingOrdersRaw);
+	}
+
 	/**
 	 * Free-form GET against any {@code /api/v1/**} path, forwarding every query param except
 	 * {@code path}. For probing endpoints whose parameter names the docs don't pin down —
