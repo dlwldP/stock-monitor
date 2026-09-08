@@ -9,7 +9,11 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
+import jakarta.annotation.PostConstruct;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -21,10 +25,20 @@ import org.springframework.web.bind.annotation.RestController;
  * token endpoint actually work, independent of whether {@link com.stockmonitor.external.toss.TossHttpApiClient}'s
  * guessed data-endpoint paths are correct — useful the moment real credentials are
  * added, before touching anything else.
+ *
+ * <p><b>Off unless {@code toss.diagnostics.enabled=true}.</b> These endpoints hand back the
+ * account's raw responses — holdings, balances, order state — and {@link #rawPath} will issue
+ * an arbitrary {@code /api/v1/**} request with the account's own credentials, which is a wider
+ * capability than anything else in this app exposes. None of it is authenticated, so it stays
+ * opt-in rather than something you have to remember to remove before deploying. Turning it on
+ * logs a warning saying as much.
  */
 @RestController
 @RequestMapping("/api/toss")
+@ConditionalOnProperty(prefix = "toss.diagnostics", name = "enabled", havingValue = "true")
 public class TossDiagnosticsController {
+
+	private static final Logger log = LoggerFactory.getLogger(TossDiagnosticsController.class);
 
 	private static final String CANDLES_PATH = "/api/v1/candles";
 
@@ -43,6 +57,12 @@ public class TossDiagnosticsController {
 		this.tokenProviderProvider = tokenProviderProvider;
 		this.httpApiClientProvider = httpApiClientProvider;
 		this.properties = properties;
+	}
+
+	@PostConstruct
+	void warnThatDiagnosticsAreExposed() {
+		log.warn("/api/toss/** 진단 엔드포인트가 켜져 있습니다 (toss.diagnostics.enabled=true). "
+				+ "인증 없이 계좌 원문을 반환하고 임의의 /api/v1/** 호출을 허용하므로, 외부에서 접근 가능한 서버에서는 꺼두세요.");
 	}
 
 	@PostMapping("/verify-connection")

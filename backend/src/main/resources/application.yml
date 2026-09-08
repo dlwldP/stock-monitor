@@ -58,6 +58,11 @@ toss:
     # to find it once real credentials work - see TossApiProperties).
     account-seq: ${TOSS_ACCOUNT_SEQ:}
     use-real-client: ${TOSS_API_USE_REAL_CLIENT:false}
+  # /api/toss/** diagnostics. Off by default: they return the account's raw responses
+  # with no auth and can issue arbitrary /api/v1/** calls with your credentials, so this
+  # is opt-in rather than something to remember to remove before deploying.
+  diagnostics:
+    enabled: ${TOSS_DIAGNOSTICS_ENABLED:false}
 
 # CORS: which frontend origin(s) may call /api/**. Comma-separated for multiple.
 app:
