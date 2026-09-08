@@ -45,7 +45,7 @@ cd backend
 - 기본 포트: `8080`
 - 로컬 DB: H2 파일모드 (`backend/data/`, 최초 실행 시 자동 생성, git에는 포함되지 않음)
 - 헬스체크: `GET http://localhost:8080/api/health`
-- 테스트: `./gradlew test` — 99개. 컨트롤러 HTTP 계약 테스트(`@WebMvcTest`) 포함. 도메인 로직(알림 조건 판정·쿨다운)·서비스·스케줄러·알림 디스패처 단위 테스트(Mockito 기반), 토스 API 응답 매핑을 실제 응답 구조에 고정하는 테스트, 캔들 기반 등락률/거래량/52주 파생 계산 테스트
+- 테스트: `./gradlew test` — 101개. 컨트롤러 HTTP 계약 테스트(`@WebMvcTest`) 포함. 도메인 로직(알림 조건 판정·쿨다운)·서비스·스케줄러·알림 디스패처 단위 테스트(Mockito 기반), 토스 API 응답 매핑을 실제 응답 구조에 고정하는 테스트, 캔들 기반 등락률/거래량/52주 파생 계산 테스트
 
 ### 프론트엔드
 
@@ -68,6 +68,7 @@ npm run dev
 | `TOSS_CLIENT_SECRET` | 토스증권 Open API client secret |
 | `TOSS_ACCOUNT_SEQ` | 계좌·자산/주문 API에 필요한 `X-Tossinvest-Account` 헤더 값. 계좌번호(`accountNo`)가 아니라 **`accountSeq`** 값입니다 (보통 `1` 같은 작은 정수). `GET /api/toss/accounts`로 확인 |
 | `TOSS_API_USE_REAL_CLIENT` | `true`로 설정하면 `MockTossApiClient` 대신 실제 API를 호출하는 `TossHttpApiClient`를 사용 (기본값 `false`) |
+| `TOSS_DIAGNOSTICS_ENABLED` | `true`로 설정하면 `/api/toss/**` 진단 엔드포인트가 켜짐 (기본값 `false`). 인증 없이 계좌 원문을 반환하므로 로컬에서 실연동을 확인할 때만 켜세요 — 아래 "배포 전에 확인할 것" 참고 |
 
 `TOSS_API_USE_REAL_CLIENT`는 **키를 넣어도 자동으로 켜지지 않습니다.** 아래 "토스증권 실연동" 절을 먼저 읽어보세요.
 
@@ -93,7 +94,7 @@ npm run dev
 | `H2_CONSOLE_ENABLED` | `true` | `/h2-console`(DB 브라우저) 노출 여부. 외부에서 접근 가능한 서버라면 `false`로 |
 | `LOG_LEVEL` | `debug` | `com.stockmonitor` 패키지 로그 레벨. 운영에서는 `info` 권장 |
 
-`/api/toss/**` 진단 엔드포인트(`raw/*` 포함)는 계좌·보유종목 원문을 그대로 돌려줍니다. 로컬 개발용이므로, 외부에 노출되는 서버라면 인증을 붙이거나 해당 컨트롤러를 빼고 배포하세요.
+`/api/toss/**` 진단 엔드포인트(`raw/*` 포함)는 계좌·보유종목 원문을 인증 없이 그대로 돌려주고, `/api/toss/raw?path=...`는 계좌 자격증명으로 임의의 `/api/v1/**` 요청까지 보낼 수 있습니다. 그래서 **기본값이 꺼짐(`TOSS_DIAGNOSTICS_ENABLED=false`)** 입니다 — 배포 전에 따로 빼야 하는 게 아니라, 켜려면 명시적으로 켜야 하는 구조입니다 (`@ConditionalOnProperty`). 실연동 확인이 끝났으면 다시 꺼두세요.
 
 ## 토스증권 실연동
 
@@ -169,7 +170,7 @@ npm run dev
 
 ### 진단용 엔드포인트
 
-응답 스키마를 확인하거나 문제를 좁힐 때 쓰는 것들입니다. **계좌 원문을 그대로 돌려주므로 로컬 개발용입니다** (배포 시 주의 — 위 "배포 전에 확인할 것" 참고):
+응답 스키마를 확인하거나 문제를 좁힐 때 쓰는 것들입니다. **`TOSS_DIAGNOSTICS_ENABLED=true`로 켜야 동작합니다** (기본값 꺼짐 — 위 "배포 전에 확인할 것" 참고):
 
 | 엔드포인트 | 용도 |
 |---|---|
