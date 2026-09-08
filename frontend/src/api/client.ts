@@ -4,6 +4,7 @@ import type {
   AlertLog,
   AlertLogStatus,
   AlertRule,
+  AlertTriggerMode,
   ApiErrorBody,
   Candle,
   DashboardResponse,
@@ -61,6 +62,7 @@ export const api = {
     thresholdValue: number
     channels: string[]
     cooldownMinutes?: number
+    triggerMode?: AlertTriggerMode
   }) => request<AlertRule>('/api/alert-rules', { method: 'POST', body: JSON.stringify(body) }),
   setAlertRuleActive: (id: number, active: boolean) =>
     request<AlertRule>(`/api/alert-rules/${id}`, { method: 'PATCH', body: JSON.stringify({ active }) }),

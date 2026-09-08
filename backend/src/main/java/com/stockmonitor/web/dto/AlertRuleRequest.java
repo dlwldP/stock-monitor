@@ -2,6 +2,7 @@ package com.stockmonitor.web.dto;
 
 import com.stockmonitor.domain.AlertChannel;
 import com.stockmonitor.domain.AlertConditionType;
+import com.stockmonitor.domain.AlertTriggerMode;
 import com.stockmonitor.domain.Market;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotEmpty;
@@ -17,5 +18,7 @@ public record AlertRuleRequest(
 		@NotNull @Positive BigDecimal thresholdValue,
 		@NotEmpty Set<AlertChannel> channels,
 		/** Null means "use the default" (see AlertRuleService.DEFAULT_COOLDOWN_MINUTES). */
-		Integer cooldownMinutes) {
+		Integer cooldownMinutes,
+		/** Null means {@link AlertTriggerMode#EDGE}. */
+		AlertTriggerMode triggerMode) {
 }

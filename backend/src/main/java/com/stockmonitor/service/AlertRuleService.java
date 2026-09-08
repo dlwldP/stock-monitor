@@ -47,7 +47,8 @@ public class AlertRuleService {
 		}
 
 		AlertRule rule = new AlertRule(
-				request.symbol(), request.market(), request.conditionType(), request.thresholdValue(), request.channels(), cooldown);
+				request.symbol(), request.market(), request.conditionType(), request.thresholdValue(), request.channels(),
+				cooldown, request.triggerMode());
 		return AlertRuleResponse.of(repository.save(rule));
 	}
 

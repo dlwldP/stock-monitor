@@ -3,6 +3,7 @@ package com.stockmonitor.web.dto;
 import com.stockmonitor.domain.AlertChannel;
 import com.stockmonitor.domain.AlertConditionType;
 import com.stockmonitor.domain.AlertRule;
+import com.stockmonitor.domain.AlertTriggerMode;
 import com.stockmonitor.domain.Market;
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -17,12 +18,14 @@ public record AlertRuleResponse(
 		Set<AlertChannel> channels,
 		boolean active,
 		int cooldownMinutes,
+		AlertTriggerMode triggerMode,
 		Instant lastTriggeredAt,
 		Instant createdAt) {
 
 	public static AlertRuleResponse of(AlertRule rule) {
 		return new AlertRuleResponse(
 				rule.getId(), rule.getSymbol(), rule.getMarket(), rule.getConditionType(), rule.getThresholdValue(),
-				rule.getChannels(), rule.isActive(), rule.getCooldownMinutes(), rule.getLastTriggeredAt(), rule.getCreatedAt());
+				rule.getChannels(), rule.isActive(), rule.getCooldownMinutes(), rule.getTriggerMode(),
+				rule.getLastTriggeredAt(), rule.getCreatedAt());
 	}
 }

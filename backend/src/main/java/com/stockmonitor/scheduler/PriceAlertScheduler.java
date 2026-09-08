@@ -60,10 +60,14 @@ public class PriceAlertScheduler {
 					// Already logged by the client; skip this rule rather than firing on nothing.
 					continue;
 				}
-				if (rule.isSatisfiedBy(quote) && rule.isCooldownElapsed(now)) {
+				boolean conditionMet = rule.isSatisfiedBy(quote);
+				if (rule.shouldTrigger(conditionMet, now)) {
 					dispatcher.dispatch(new AlertTriggeredEvent(rule, quote, now));
 					rule.setLastTriggeredAt(now); // managed entity: flushed at transaction commit
 				}
+				// Always recorded, including when nothing was sent: this is what re-arms an
+				// EDGE rule once its condition stops holding.
+				rule.recordEvaluation(conditionMet);
 			} catch (Exception e) {
 				log.error("Failed to evaluate alert rule {} ({} {})", rule.getId(), rule.getSymbol(), rule.getMarket(), e);
 			}
