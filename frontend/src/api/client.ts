@@ -10,6 +10,7 @@ import type {
   DashboardResponse,
   Market,
   PageResponse,
+  PendingOrder,
   SettingsStatus,
   WatchlistItem,
 } from '../types'
@@ -67,6 +68,8 @@ export const api = {
   setAlertRuleActive: (id: number, active: boolean) =>
     request<AlertRule>(`/api/alert-rules/${id}`, { method: 'PATCH', body: JSON.stringify({ active }) }),
   deleteAlertRule: (id: number) => request<void>(`/api/alert-rules/${id}`, { method: 'DELETE' }),
+
+  getPendingOrders: () => request<PendingOrder[]>('/api/orders/pending'),
 
   getRecentAlertLogs: (limit = 10) => request<AlertLog[]>(`/api/alert-logs/recent?limit=${limit}`),
   getAlertLogsPage: (filter: { channel?: AlertChannel; status?: AlertLogStatus; page?: number; size?: number }) => {

@@ -38,6 +38,23 @@ export interface AlertRule {
 /** EDGE: 조건이 충족될 때 한 번만. REPEAT: 조건이 유지되는 동안 쿨다운마다 반복. */
 export type AlertTriggerMode = 'EDGE' | 'REPEAT'
 
+export type OrderSide = 'BUY' | 'SELL'
+
+export interface PendingOrder {
+  orderId: string
+  symbol: string
+  name: string
+  market: Market
+  side: OrderSide
+  quantity: number
+  filledQuantity: number
+  remainingQuantity: number
+  partiallyFilled: boolean
+  /** null for a market order. */
+  price: number | null
+  orderedAt: string
+}
+
 export interface AlertLog {
   id: number
   alertRuleId: number

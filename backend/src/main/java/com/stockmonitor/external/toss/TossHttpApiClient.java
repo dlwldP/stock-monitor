@@ -75,6 +75,8 @@ public class TossHttpApiClient implements TossApiClient {
 	private static final String CANDLES_PATH = "/api/v1/candles";
 	private static final String HOLDINGS_PATH = "/api/v1/holdings";
 	private static final String ACCOUNTS_PATH = "/api/v1/accounts";
+	/** Unverified — see {@link #getPendingOrders()}. */
+	private static final String ORDERS_PATH = "/api/v1/orders";
 	/** The one daily-interval spelling the API accepts — see {@link #getDailyCandles}. */
 	private static final String DAILY_INTERVAL = "1d";
 	private static final long DEFAULT_RETRY_SECONDS = 2;
@@ -340,14 +342,21 @@ public class TossHttpApiClient implements TossApiClient {
 		return candles.size() <= days ? candles : candles.subList(candles.size() - days, candles.size());
 	}
 
-	/**
-	 * Picks the candle array out of the response's {@code result} object, which also holds a
-	 * {@code nextBefore} cursor. The array's field name isn't documented and wasn't visible
-	 * in the captured response, so rather than guess a name and render an empty chart when
-	 * the guess is wrong, this takes the object's sole array field and fails loudly, naming
-	 * what it actually found, if there isn't one.
-	 */
 	private static JsonNode candleArray(JsonNode result, String symbol) {
+		return arrayFieldOf(result, "캔들(symbol=%s)".formatted(symbol));
+	}
+
+	/**
+	 * Pulls the payload array out of a {@code result} that may be the array itself or an
+	 * object wrapping one alongside other fields (candles pair theirs with a
+	 * {@code nextBefore} cursor).
+	 *
+	 * <p>The array's field name isn't documented for either endpoint that needs this, so
+	 * rather than guess a name and silently render nothing when the guess is wrong, this takes
+	 * the object's sole array field and otherwise throws naming the fields it actually found —
+	 * which is the information needed to fix the mapping.
+	 */
+	private static JsonNode arrayFieldOf(JsonNode result, String what) {
 		if (result.isArray()) {
 			return result;
 		}
@@ -360,7 +369,7 @@ public class TossHttpApiClient implements TossApiClient {
 		List<String> fieldNames = new ArrayList<>();
 		result.fieldNames().forEachRemaining(fieldNames::add);
 		throw new IllegalStateException(
-				"캔들 응답에서 배열 필드를 찾지 못했습니다 (symbol=%s). result의 필드: %s".formatted(symbol, fieldNames));
+				"%s 응답에서 배열 필드를 찾지 못했습니다. result의 필드: %s".formatted(what, fieldNames));
 	}
 
 	@Override
@@ -395,6 +404,38 @@ public class TossHttpApiClient implements TossApiClient {
 
 	private static <T> List<T> unwrap(ResultEnvelope<T> envelope) {
 		return envelope == null || envelope.result() == null ? List.of() : envelope.result();
+	}
+
+	/**
+	 * {@inheritDoc}
+	 *
+	 * <p><b>Unverified, unlike everything else in this class.</b> The docs mention that Order
+	 * calls need the account header, but this codebase has never seen the endpoint's path,
+	 * parameters or response — {@link #ORDERS_PATH} and {@link PendingOrderDto}'s field names
+	 * are guesses modelled on the endpoints that <em>are</em> confirmed (the
+	 * {@code {"result": ...}} envelope, string-encoded numbers, {@code marketCountry}).
+	 *
+	 * <p>It is therefore written to fail informatively rather than quietly, and callers should
+	 * treat a failure as "미체결 주문을 보여줄 수 없음" rather than an error worth taking a
+	 * screen down for. Use {@code GET /api/toss/raw?path=/api/v1/orders} to see what the real
+	 * endpoint answers, then fix the path and the DTO here — nothing else needs to change.
+	 */
+	@Override
+	public List<PendingOrder> getPendingOrders() {
+		JsonNode result = authorizedGet(ORDERS_PATH, JsonNode.class, uri -> uri, true).path("result");
+		List<PendingOrder> orders = new ArrayList<>();
+		for (JsonNode node : arrayFieldOf(result, "미체결 주문")) {
+			PendingOrderDto dto = objectMapper.convertValue(node, PendingOrderDto.class);
+			orders.add(new PendingOrder(
+					dto.orderId(), dto.symbol(), dto.name(), toMarket(dto.marketCountry()), dto.orderSide(),
+					dto.quantity(), dto.filledQuantity(), dto.price(), dto.parsedOrderedAt()));
+		}
+		return orders;
+	}
+
+	/** Raw {@code GET /api/v1/orders} JSON — the mapping above is unverified, so this is how to check it. */
+	public JsonNode getPendingOrdersRaw() {
+		return authorizedGet(ORDERS_PATH, JsonNode.class, uri -> uri, true);
 	}
 
 	/**
@@ -632,6 +673,34 @@ public class TossHttpApiClient implements TossApiClient {
 
 		OffsetDateTime parsedTimestamp() {
 			return timestamp != null ? OffsetDateTime.parse(timestamp) : OffsetDateTime.now();
+		}
+	}
+
+	/**
+	 * Best-guess shape of one 미체결 주문 entry — <b>not confirmed against the real API</b>, see
+	 * {@link #getPendingOrders()}. Modelled on the endpoints that are confirmed: string-encoded
+	 * numbers, an ISO timestamp carrying the market's own offset, {@code marketCountry} for the
+	 * market.
+	 */
+	@JsonIgnoreProperties(ignoreUnknown = true)
+	record PendingOrderDto(
+			String orderId,
+			String symbol,
+			String name,
+			String marketCountry,
+			String side,
+			BigDecimal quantity,
+			BigDecimal filledQuantity,
+			BigDecimal price,
+			String orderedAt) {
+
+		/** Named differently from the {@code side} component, which a record accessor may not shadow. */
+		OrderSide orderSide() {
+			return side != null && side.toUpperCase().startsWith("S") ? OrderSide.SELL : OrderSide.BUY;
+		}
+
+		Instant parsedOrderedAt() {
+			return orderedAt == null ? Instant.now() : OffsetDateTime.parse(orderedAt).toInstant();
 		}
 	}
 

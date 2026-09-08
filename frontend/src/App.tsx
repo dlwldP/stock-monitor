@@ -9,9 +9,19 @@ import { AssetSummaryCard } from './components/AssetSummaryCard'
 import { AssetTrendChart } from './components/AssetTrendChart'
 import { ChartsPage, type ChartSymbolOption } from './components/ChartsPage'
 import { HoldingsTable } from './components/HoldingsTable'
+import { PendingOrdersTable } from './components/PendingOrdersTable'
 import { SettingsPage } from './components/SettingsPage'
 import { WatchlistPanel } from './components/WatchlistPanel'
-import type { AccountSnapshot, AccountSummary, AlertLog, AlertRule, Holding, Market, WatchlistItem } from './types'
+import type {
+  AccountSnapshot,
+  AccountSummary,
+  AlertLog,
+  AlertRule,
+  Holding,
+  Market,
+  PendingOrder,
+  WatchlistItem,
+} from './types'
 
 const REFRESH_INTERVAL_MS = 30_000
 
@@ -25,6 +35,8 @@ function App() {
   const [accountSummary, setAccountSummary] = useState<AccountSummary | null>(null)
   const [accountHistory, setAccountHistory] = useState<AccountSnapshot[]>([])
   const [holdings, setHoldings] = useState<Holding[]>([])
+  const [pendingOrders, setPendingOrders] = useState<PendingOrder[]>([])
+  const [ordersError, setOrdersError] = useState<string | null>(null)
   const [watchlist, setWatchlist] = useState<WatchlistItem[]>([])
   const [alertRules, setAlertRules] = useState<AlertRule[]>([])
   const [alertLogs, setAlertLogs] = useState<AlertLog[]>([])
@@ -34,6 +46,20 @@ function App() {
 
   const refreshUnreadCount = useCallback(() => {
     api.getUnreadAlertCount().then((res) => setUnreadCount(res.unread)).catch(() => {})
+  }, [])
+
+  /**
+   * Kept out of the main refresh: the orders endpoint is the one part of the Toss API this
+   * project has never verified, so a failure there shows on its own card instead of failing
+   * the whole dashboard load.
+   */
+  const refreshPendingOrders = useCallback(async () => {
+    try {
+      setPendingOrders(await api.getPendingOrders())
+      setOrdersError(null)
+    } catch (err) {
+      setOrdersError(err instanceof Error ? err.message : '미체결 주문을 불러오지 못했습니다.')
+    }
   }, [])
 
   const refresh = useCallback(async () => {
@@ -54,10 +80,11 @@ function App() {
       setBackendStatus('ok')
       setHasLoadedOnce(true)
       refreshUnreadCount()
+      refreshPendingOrders()
     } catch {
       setBackendStatus('unreachable')
     }
-  }, [refreshUnreadCount])
+  }, [refreshUnreadCount, refreshPendingOrders])
 
   useEffect(() => {
     refresh()
@@ -115,6 +142,7 @@ function App() {
     try {
       await api.markAlertLogRead(id)
       refreshUnreadCount()
+      refreshPendingOrders()
     } catch {
       setAlertLogs((prev) => prev.map((l) => (l.id === id ? { ...l, read: false } : l)))
     }
@@ -162,6 +190,7 @@ function App() {
             <AssetTrendChart snapshots={accountHistory} />
           </section>
           <HoldingsTable holdings={holdings} loading={!hasLoadedOnce} />
+          <PendingOrdersTable orders={pendingOrders} loading={!hasLoadedOnce} error={ordersError} />
           <WatchlistPanel
             items={watchlist}
             loading={!hasLoadedOnce}

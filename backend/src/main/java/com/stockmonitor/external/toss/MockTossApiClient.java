@@ -89,6 +89,23 @@ public class MockTossApiClient implements TossApiClient {
 		return MOCK_HOLDINGS;
 	}
 
+	/**
+	 * Two fixed orders covering the states worth seeing on screen: one untouched buy waiting
+	 * to fill, and one sell that's partially filled. Fixed rather than random so the screen
+	 * doesn't flicker between refreshes.
+	 */
+	@Override
+	public List<PendingOrder> getPendingOrders() {
+		Instant now = Instant.now();
+		return List.of(
+				new PendingOrder(
+						"MOCK-1", "005930", "삼성전자", Market.KR, OrderSide.BUY,
+						new BigDecimal("5"), BigDecimal.ZERO, new BigDecimal("68000"), now.minusSeconds(1800)),
+				new PendingOrder(
+						"MOCK-2", "AAPL", "Apple Inc.", Market.US, OrderSide.SELL,
+						new BigDecimal("3"), new BigDecimal("1"), new BigDecimal("235.00"), now.minusSeconds(600)));
+	}
+
 	@Override
 	public List<Candle> getDailyCandles(String symbol, Market market, int days) {
 		PriceState state = stateFor(symbol, market);

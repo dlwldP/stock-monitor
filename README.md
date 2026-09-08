@@ -41,7 +41,7 @@ cd backend
 - 기본 포트: `8080`
 - 로컬 DB: H2 파일모드 (`backend/data/`, 최초 실행 시 자동 생성, git에는 포함되지 않음)
 - 헬스체크: `GET http://localhost:8080/api/health`
-- 테스트: `./gradlew test` — 69개. 도메인 로직(알림 조건 판정·쿨다운)·서비스·스케줄러·알림 디스패처 단위 테스트(Mockito 기반), 토스 API 응답 매핑을 실제 응답 구조에 고정하는 테스트, 캔들 기반 등락률/거래량/52주 파생 계산 테스트
+- 테스트: `./gradlew test` — 74개. 도메인 로직(알림 조건 판정·쿨다운)·서비스·스케줄러·알림 디스패처 단위 테스트(Mockito 기반), 토스 API 응답 매핑을 실제 응답 구조에 고정하는 테스트, 캔들 기반 등락률/거래량/52주 파생 계산 테스트
 
 ### 프론트엔드
 
@@ -174,6 +174,7 @@ npm run dev
 | `GET /api/toss/raw/holdings` | 보유종목 원문 JSON |
 | `GET /api/toss/raw/prices?symbol=005930` | 시세 원문 JSON |
 | `GET /api/toss/raw/candles?symbol=005930&days=5` | 캔들 원문 JSON |
+| `GET /api/toss/raw/orders` | 미체결 주문 원문 JSON (**미검증 엔드포인트** — 실제 응답 확인용) |
 | `GET /api/toss/raw?path=/api/v1/...&아무_파라미터=값` | 임의 `/api/v1/**` 경로에 임의 파라미터로 호출. **파라미터 이름부터 찾아야 할 때** 코드 수정 없이 시도 |
 | `GET /api/toss/probe/candle-intervals?symbol=005930` | 캔들 주기 후보를 한 번에 시험 (`?intervals=A,B,C`로 후보 직접 지정) |
 
@@ -188,6 +189,8 @@ npm run dev
   - 기존에 만들어둔 규칙은 컬럼이 비어 있는데, 코드에서 `EDGE`로 읽습니다 (백필 마이그레이션 불필요)
 - **스케줄러**: 60초 주기로 활성 규칙을 평가하고 조건 충족 시 알림 발송 (`PriceAlertScheduler`). 시세는 규칙별이 아니라 **한 번에 묶어서** 조회하므로, 같은 종목에 규칙이 여러 개 있어도 종목당 1회만 조회합니다 (관심종목 목록도 동일)
 - **알림 히스토리**: 대시보드에는 최근 알림 미리보기(`/api/alert-logs/recent`), 전용 화면에는 채널/상태 필터 + 페이지네이션을 갖춘 전체 히스토리(`/api/alert-logs`). 인앱 알림은 읽음/안읽음 상태를 관리하고(`/api/alert-logs/unread-count`, `PATCH .../{id}/read`, `POST .../mark-all-read`) 탭에 안읽음 뱃지로 표시
+- **미체결 주문**: 주문했지만 아직 체결되지 않은 건을 대시보드에 표시 (`/api/orders/pending`). 보유종목은 이미 체결된 결과만 보여주므로, 주문을 넣은 시점과 계좌에 반영되는 시점 사이의 상태가 그동안 화면에 없었습니다. 부분체결이면 체결/미체결 수량을 함께 표시합니다. **읽기 전용입니다** — 이 앱은 계좌를 모니터링만 하고 주문을 넣지 않습니다
+  - 다만 **토스 Order API는 이 프로젝트에서 유일하게 검증하지 못한 부분**입니다. 엔드포인트 경로·응답 스키마를 실제로 본 적이 없어서 `TossHttpApiClient.getPendingOrders`의 매핑은 확정된 다른 엔드포인트들의 관례(`{"result":...}` 봉투, 문자열 숫자, `marketCountry`)를 따른 추정입니다. Mock 모드에서는 정상 동작하고, 실연동에서 실패하면 해당 카드만 에러를 표시하고 대시보드의 나머지는 영향받지 않습니다. `GET /api/toss/raw/orders`로 실제 응답을 확인한 뒤 경로와 DTO만 고치면 됩니다
 - **캔들 차트**: 관심종목/보유종목 선택 후 일봉 캔들 차트 확인 (`/api/candles`, 별도 차트 라이브러리 없이 자체 SVG 렌더링)
 - **자산 추이 그래프**: `AccountSnapshotScheduler`가 주기적으로(기본 15분, 로컬 데모용으로 짧게 잡음) 자산 총액을 저장하고 (`/api/dashboard/history`), 대시보드에 라인 차트로 표시
 - **다이제스트 알림**: 매일 08:00(설정 가능)에 그날 발송된 알림 요약 + 현재 자산현황을 이메일로 발송 (`DigestScheduler`), 테스트용으로 `POST /api/digest/send-now`도 있음
