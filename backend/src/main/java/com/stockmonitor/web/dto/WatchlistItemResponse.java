@@ -20,4 +20,15 @@ public record WatchlistItemResponse(
 				item.getId(), item.getSymbol(), item.getMarket(), item.getDisplayName(), item.getCreatedAt(),
 				quote.price(), quote.changeRate());
 	}
+
+	/**
+	 * The item without price fields, for when its quote couldn't be fetched. The row still
+	 * belongs on the screen — the user put it there — so it's listed with the price left
+	 * empty rather than dropped from the response.
+	 */
+	public static WatchlistItemResponse of(WatchlistItem item) {
+		return new WatchlistItemResponse(
+				item.getId(), item.getSymbol(), item.getMarket(), item.getDisplayName(), item.getCreatedAt(),
+				null, null);
+	}
 }

@@ -2,6 +2,7 @@ package com.stockmonitor.service;
 
 import com.stockmonitor.domain.WatchlistItem;
 import com.stockmonitor.external.toss.Quote;
+import com.stockmonitor.external.toss.SymbolRef;
 import com.stockmonitor.external.toss.TossApiClient;
 import com.stockmonitor.repository.WatchlistItemRepository;
 import com.stockmonitor.web.dto.WatchlistItemRequest;
@@ -9,6 +10,7 @@ import com.stockmonitor.web.dto.WatchlistItemResponse;
 import com.stockmonitor.web.exception.ConflictException;
 import com.stockmonitor.web.exception.NotFoundException;
 import java.util.List;
+import java.util.Map;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -24,11 +26,21 @@ public class WatchlistService {
 		this.tossApiClient = tossApiClient;
 	}
 
+	/**
+	 * The whole watchlist with a live quote per item.
+	 *
+	 * <p>Quotes are fetched in one batch rather than per item: this runs on every dashboard
+	 * refresh, so a per-item loop meant one API call per watchlist entry every few seconds
+	 * against a rate-limited API.
+	 */
 	public List<WatchlistItemResponse> list() {
-		return repository.findAll().stream()
+		List<WatchlistItem> items = repository.findAll();
+		Map<SymbolRef, Quote> quotes = tossApiClient.getQuotes(
+				items.stream().map(item -> new SymbolRef(item.getSymbol(), item.getMarket())).toList());
+		return items.stream()
 				.map(item -> {
-					Quote quote = tossApiClient.getQuote(item.getSymbol(), item.getMarket());
-					return WatchlistItemResponse.of(item, quote);
+					Quote quote = quotes.get(new SymbolRef(item.getSymbol(), item.getMarket()));
+					return quote == null ? WatchlistItemResponse.of(item) : WatchlistItemResponse.of(item, quote);
 				})
 				.toList();
 	}

@@ -15,7 +15,8 @@ export interface WatchlistItem {
   market: Market
   displayName: string | null
   createdAt: string
-  currentPrice: number
+  /** null when this item's quote couldn't be fetched — the row is still listed. */
+  currentPrice: number | null
   /** null when the data source doesn't provide a change rate (the real Toss price API doesn't). */
   changeRate: number | null
 }
