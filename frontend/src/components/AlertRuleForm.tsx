@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import type { AlertChannel, AlertConditionType, Market } from '../types'
+import type { AlertChannel, AlertConditionType, AlertTriggerMode, Market } from '../types'
 
 interface Props {
   symbol: string
@@ -11,6 +11,7 @@ interface Props {
     thresholdValue: number
     channels: AlertChannel[]
     cooldownMinutes: number
+    triggerMode: AlertTriggerMode
   }) => Promise<void>
   onClose: () => void
 }
@@ -40,6 +41,7 @@ export function AlertRuleForm({ symbol, market, onSubmit, onClose }: Props) {
   const [thresholdValue, setThresholdValue] = useState('')
   const [channels, setChannels] = useState<AlertChannel[]>(['INAPP'])
   const [cooldownMinutes, setCooldownMinutes] = useState('60')
+  const [triggerMode, setTriggerMode] = useState<AlertTriggerMode>('EDGE')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -70,6 +72,7 @@ export function AlertRuleForm({ symbol, market, onSubmit, onClose }: Props) {
         thresholdValue: threshold,
         channels,
         cooldownMinutes: Number(cooldownMinutes) || 0,
+        triggerMode,
       })
       onClose()
     } catch (err) {
@@ -120,6 +123,13 @@ export function AlertRuleForm({ symbol, market, onSubmit, onClose }: Props) {
               value={cooldownMinutes}
               onChange={(e) => setCooldownMinutes(e.target.value)}
             />
+          </label>
+          <label>
+            반복 방식
+            <select value={triggerMode} onChange={(e) => setTriggerMode(e.target.value as AlertTriggerMode)}>
+              <option value="EDGE">조건 충족 시 1회 (해제되면 다시 알림)</option>
+              <option value="REPEAT">조건 유지되는 동안 쿨다운마다 반복</option>
+            </select>
           </label>
         </div>
         <div className="form-row">

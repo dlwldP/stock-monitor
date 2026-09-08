@@ -38,6 +38,7 @@ export function AlertRuleList({ rules, loading, onToggleActive, onDelete }: Prop
             <tr>
               <th>종목</th>
               <th>조건</th>
+              <th>반복</th>
               <th>채널</th>
               <th>마지막 발송</th>
               <th>활성</th>
@@ -51,6 +52,7 @@ export function AlertRuleList({ rules, loading, onToggleActive, onDelete }: Prop
                   {rule.symbol} <span className="muted">({rule.market})</span>
                 </td>
                 <td>{conditionText(rule)}</td>
+                <td className="muted">{rule.triggerMode === 'REPEAT' ? '반복' : '1회'}</td>
                 <td>{rule.channels.join(', ')}</td>
                 <td>{rule.lastTriggeredAt ? formatDateTime(rule.lastTriggeredAt) : '-'}</td>
                 <td>

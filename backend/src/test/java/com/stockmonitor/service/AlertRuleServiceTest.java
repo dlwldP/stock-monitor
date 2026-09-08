@@ -42,7 +42,7 @@ class AlertRuleServiceTest {
 	}
 
 	private AlertRuleRequest request(Set<AlertChannel> channels, Integer cooldown) {
-		return new AlertRuleRequest("005930", Market.KR, AlertConditionType.PRICE_ABOVE, new BigDecimal("70000"), channels, cooldown);
+		return new AlertRuleRequest("005930", Market.KR, AlertConditionType.PRICE_ABOVE, new BigDecimal("70000"), channels, cooldown, null);
 	}
 
 	@Test

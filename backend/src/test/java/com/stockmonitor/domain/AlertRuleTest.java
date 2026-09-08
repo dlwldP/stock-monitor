@@ -124,4 +124,83 @@ class AlertRuleTest {
 		rule.setLastTriggeredAt(now);
 		assertThat(rule.isCooldownElapsed(now.plusMillis(1))).isTrue();
 	}
+
+	private AlertRule ruleWithMode(AlertTriggerMode mode, int cooldownMinutes) {
+		return new AlertRule(
+				"005930", MARKET, AlertConditionType.PRICE_ABOVE, new BigDecimal("70000"),
+				Set.of(AlertChannel.INAPP), cooldownMinutes, mode);
+	}
+
+	@Test
+	void edgeModeNotifiesOnceWhileTheConditionKeepsHolding() {
+		// The behaviour this mode exists for: a stock that simply stays above its target
+		// shouldn't re-notify every cooldown window.
+		AlertRule rule = ruleWithMode(AlertTriggerMode.EDGE, 0);
+		Instant now = Instant.now();
+
+		assertThat(rule.shouldTrigger(true, now)).isTrue();
+		rule.setLastTriggeredAt(now);
+		rule.recordEvaluation(true);
+
+		assertThat(rule.shouldTrigger(true, now.plusSeconds(3600))).isFalse();
+		rule.recordEvaluation(true);
+		assertThat(rule.shouldTrigger(true, now.plusSeconds(7200))).isFalse();
+	}
+
+	@Test
+	void edgeModeRearmsOnceTheConditionStopsHolding() {
+		AlertRule rule = ruleWithMode(AlertTriggerMode.EDGE, 0);
+		Instant now = Instant.now();
+		rule.setLastTriggeredAt(now);
+		rule.recordEvaluation(true);
+
+		// Price drops back below the target: nothing fires, but the rule re-arms...
+		assertThat(rule.shouldTrigger(false, now.plusSeconds(60))).isFalse();
+		rule.recordEvaluation(false);
+
+		// ...so the next crossing notifies again.
+		assertThat(rule.shouldTrigger(true, now.plusSeconds(120))).isTrue();
+	}
+
+	@Test
+	void repeatModeKeepsNotifyingEveryCooldownWindowWhileTheConditionHolds() {
+		AlertRule rule = ruleWithMode(AlertTriggerMode.REPEAT, 0);
+		Instant now = Instant.now();
+
+		assertThat(rule.shouldTrigger(true, now)).isTrue();
+		rule.setLastTriggeredAt(now);
+		rule.recordEvaluation(true);
+
+		assertThat(rule.shouldTrigger(true, now.plusSeconds(3600))).isTrue();
+	}
+
+	@Test
+	void edgeModeStillRespectsTheCooldownAcrossRepeatedCrossings() {
+		// Guards against a price flapping around the threshold turning into a burst.
+		AlertRule rule = ruleWithMode(AlertTriggerMode.EDGE, 60);
+		Instant now = Instant.now();
+		rule.setLastTriggeredAt(now);
+		rule.recordEvaluation(false); // already re-armed
+
+		assertThat(rule.shouldTrigger(true, now.plusSeconds(30 * 60))).isFalse();
+		assertThat(rule.shouldTrigger(true, now.plusSeconds(61 * 60))).isTrue();
+	}
+
+	@Test
+	void neverNotifiesWhileTheConditionIsUnmet() {
+		AlertRule rule = ruleWithMode(AlertTriggerMode.REPEAT, 0);
+		assertThat(rule.shouldTrigger(false, Instant.now())).isFalse();
+	}
+
+	@Test
+	void rulesStoredBeforeTheColumnExistedBehaveAsEdge() {
+		// triggerMode reads back null for those rows; it must not NPE or silently repeat.
+		AlertRule rule = ruleWithMode(null, 0);
+		assertThat(rule.getTriggerMode()).isEqualTo(AlertTriggerMode.EDGE);
+
+		Instant now = Instant.now();
+		assertThat(rule.shouldTrigger(true, now)).isTrue();
+		rule.recordEvaluation(true);
+		assertThat(rule.shouldTrigger(true, now.plusSeconds(3600))).isFalse();
+	}
 }

@@ -30,9 +30,13 @@ export interface AlertRule {
   channels: AlertChannel[]
   active: boolean
   cooldownMinutes: number
+  triggerMode: AlertTriggerMode
   lastTriggeredAt: string | null
   createdAt: string
 }
+
+/** EDGE: 조건이 충족될 때 한 번만. REPEAT: 조건이 유지되는 동안 쿨다운마다 반복. */
+export type AlertTriggerMode = 'EDGE' | 'REPEAT'
 
 export interface AlertLog {
   id: number

@@ -69,6 +69,22 @@ public class AlertRule {
 	/** Last time this rule actually fired a notification; null if never. Drives the cooldown check. */
 	private Instant lastTriggeredAt;
 
+	/**
+	 * Nullable on purpose: rules created before this column existed read back as null, and
+	 * {@link #getTriggerMode()} maps that to {@link AlertTriggerMode#EDGE} rather than forcing
+	 * a migration to backfill them.
+	 */
+	@Enumerated(EnumType.STRING)
+	@Column(length = 10)
+	private AlertTriggerMode triggerMode = AlertTriggerMode.EDGE;
+
+	/**
+	 * Whether the condition held at the previous evaluation — the other half of the edge
+	 * detection. Null means "never evaluated", which counts as not held, so a rule created
+	 * while its condition is already true still fires on the next tick.
+	 */
+	private Boolean lastConditionMet;
+
 	@CreationTimestamp
 	@Column(nullable = false, updatable = false)
 	private Instant createdAt;
@@ -80,12 +96,24 @@ public class AlertRule {
 			BigDecimal thresholdValue,
 			Set<AlertChannel> channels,
 			int cooldownMinutes) {
+		this(symbol, market, conditionType, thresholdValue, channels, cooldownMinutes, AlertTriggerMode.EDGE);
+	}
+
+	public AlertRule(
+			String symbol,
+			Market market,
+			AlertConditionType conditionType,
+			BigDecimal thresholdValue,
+			Set<AlertChannel> channels,
+			int cooldownMinutes,
+			AlertTriggerMode triggerMode) {
 		this.symbol = symbol;
 		this.market = market;
 		this.conditionType = conditionType;
 		this.thresholdValue = thresholdValue;
 		this.channels = new HashSet<>(channels);
 		this.cooldownMinutes = cooldownMinutes;
+		this.triggerMode = triggerMode == null ? AlertTriggerMode.EDGE : triggerMode;
 	}
 
 	/**
@@ -125,5 +153,37 @@ public class AlertRule {
 		return lastTriggeredAt == null || Instant.ofEpochMilli(lastTriggeredAt.toEpochMilli())
 				.plusSeconds(cooldownMinutes * 60L)
 				.isBefore(now);
+	}
+
+	/** Defaults to {@link AlertTriggerMode#EDGE} for rules stored before the column existed. */
+	public AlertTriggerMode getTriggerMode() {
+		return triggerMode == null ? AlertTriggerMode.EDGE : triggerMode;
+	}
+
+	/**
+	 * The whole "should this notify right now?" decision, given whether the condition holds
+	 * for the current quote.
+	 *
+	 * <p>Both modes respect the cooldown. {@link AlertTriggerMode#EDGE} additionally requires
+	 * that the condition did <em>not</em> hold last time, so a stock that simply sits above
+	 * its target price notifies once rather than every cooldown window until it comes back
+	 * down.
+	 */
+	public boolean shouldTrigger(boolean conditionMet, Instant now) {
+		if (!conditionMet || !isCooldownElapsed(now)) {
+			return false;
+		}
+		return getTriggerMode() == AlertTriggerMode.REPEAT || !Boolean.TRUE.equals(lastConditionMet);
+	}
+
+	/**
+	 * Remembers whether the condition held, so the next evaluation can tell a fresh crossing
+	 * from a condition that was already true.
+	 *
+	 * <p>Must be called on every evaluation, including ones that don't notify — that's what
+	 * re-arms an EDGE rule once its condition goes false again.
+	 */
+	public void recordEvaluation(boolean conditionMet) {
+		this.lastConditionMet = conditionMet;
 	}
 }
