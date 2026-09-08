@@ -20,6 +20,10 @@
 | 프론트엔드 | React + TypeScript + Vite |
 | 알림 채널 | Discord Webhook, Email(SMTP), 인앱 알림 — 모두 구현됨 |
 
+## CI
+
+`.github/workflows/ci.yml` — PR과 main 푸시마다 백엔드(`./gradlew build`, 테스트 포함)와 프론트엔드(`npm ci` → `npm run lint` → `npm run build`)를 자동 실행합니다. 테스트가 깨지면 리포트를 아티팩트로 올려서 어떤 단언이 실패했는지 바로 볼 수 있습니다.
+
 ## 레포 구조
 
 ```
@@ -41,7 +45,7 @@ cd backend
 - 기본 포트: `8080`
 - 로컬 DB: H2 파일모드 (`backend/data/`, 최초 실행 시 자동 생성, git에는 포함되지 않음)
 - 헬스체크: `GET http://localhost:8080/api/health`
-- 테스트: `./gradlew test` — 80개. 도메인 로직(알림 조건 판정·쿨다운)·서비스·스케줄러·알림 디스패처 단위 테스트(Mockito 기반), 토스 API 응답 매핑을 실제 응답 구조에 고정하는 테스트, 캔들 기반 등락률/거래량/52주 파생 계산 테스트
+- 테스트: `./gradlew test` — 99개. 컨트롤러 HTTP 계약 테스트(`@WebMvcTest`) 포함. 도메인 로직(알림 조건 판정·쿨다운)·서비스·스케줄러·알림 디스패처 단위 테스트(Mockito 기반), 토스 API 응답 매핑을 실제 응답 구조에 고정하는 테스트, 캔들 기반 등락률/거래량/52주 파생 계산 테스트
 
 ### 프론트엔드
 
