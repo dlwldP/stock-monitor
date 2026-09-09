@@ -137,6 +137,11 @@ function App() {
     await refresh()
   }
 
+  async function handleEditAlertRule(id: number, edit: Parameters<typeof api.updateAlertRule>[1]) {
+    await api.updateAlertRule(id, edit)
+    await refresh()
+  }
+
   async function handleMarkLogRead(id: number) {
     setAlertLogs((prev) => prev.map((l) => (l.id === id ? { ...l, read: true } : l)))
     try {
@@ -210,6 +215,7 @@ function App() {
 
           <AlertRuleList
             rules={alertRules}
+            onEdit={handleEditAlertRule}
             loading={!hasLoadedOnce}
             onToggleActive={handleToggleAlertRule}
             onDelete={handleDeleteAlertRule}

@@ -67,6 +67,10 @@ export const api = {
   }) => request<AlertRule>('/api/alert-rules', { method: 'POST', body: JSON.stringify(body) }),
   setAlertRuleActive: (id: number, active: boolean) =>
     request<AlertRule>(`/api/alert-rules/${id}`, { method: 'PATCH', body: JSON.stringify({ active }) }),
+  updateAlertRule: (
+    id: number,
+    body: { thresholdValue: number; channels: AlertChannel[]; cooldownMinutes: number; triggerMode: AlertTriggerMode },
+  ) => request<AlertRule>(`/api/alert-rules/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
   deleteAlertRule: (id: number) => request<void>(`/api/alert-rules/${id}`, { method: 'DELETE' }),
 
   getPendingOrders: () => request<PendingOrder[]>('/api/orders/pending'),
