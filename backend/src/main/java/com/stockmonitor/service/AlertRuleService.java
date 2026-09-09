@@ -52,10 +52,44 @@ public class AlertRuleService {
 		return AlertRuleResponse.of(repository.save(rule));
 	}
 
+	/**
+	 * Applies whichever fields are non-null in the request, leaving the rest of the rule as-is.
+	 * Symbol/market/condition type aren't editable here — see {@link com.stockmonitor.web.dto.AlertRuleUpdateRequest}.
+	 */
 	@Transactional
-	public AlertRuleResponse setActive(Long id, boolean active) {
+	public AlertRuleResponse update(Long id, com.stockmonitor.web.dto.AlertRuleUpdateRequest request) {
 		AlertRule rule = repository.findById(id).orElseThrow(() -> new NotFoundException("알림 규칙을 찾을 수 없습니다: " + id));
-		rule.setActive(active);
+
+		if (request.active() != null) {
+			rule.setActive(request.active());
+		}
+		if (request.thresholdValue() != null) {
+			if (request.thresholdValue().signum() <= 0) {
+				throw new IllegalArgumentException("thresholdValue는 0보다 커야 합니다.");
+			}
+			rule.setThresholdValue(request.thresholdValue());
+		}
+		if (request.channels() != null) {
+			if (request.channels().isEmpty()) {
+				throw new IllegalArgumentException("channels는 최소 1개 이상이어야 합니다.");
+			}
+			Set<AlertChannel> unsupported = request.channels().stream()
+					.filter(c -> !SUPPORTED_CHANNELS.contains(c))
+					.collect(java.util.stream.Collectors.toSet());
+			if (!unsupported.isEmpty()) {
+				throw new IllegalArgumentException(unsupported + " 채널은 아직 지원하지 않습니다 (2단계 예정).");
+			}
+			rule.setChannels(new java.util.HashSet<>(request.channels()));
+		}
+		if (request.cooldownMinutes() != null) {
+			if (request.cooldownMinutes() < 0) {
+				throw new IllegalArgumentException("cooldownMinutes는 0 이상이어야 합니다.");
+			}
+			rule.setCooldownMinutes(request.cooldownMinutes());
+		}
+		if (request.triggerMode() != null) {
+			rule.setTriggerMode(request.triggerMode());
+		}
 		return AlertRuleResponse.of(rule);
 	}
 

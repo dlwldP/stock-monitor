@@ -1,9 +1,11 @@
 package com.stockmonitor.controller;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -15,6 +17,8 @@ import com.stockmonitor.domain.Market;
 import com.stockmonitor.service.AlertRuleService;
 import com.stockmonitor.web.dto.AlertRuleRequest;
 import com.stockmonitor.web.dto.AlertRuleResponse;
+import com.stockmonitor.web.dto.AlertRuleUpdateRequest;
+import com.stockmonitor.web.exception.NotFoundException;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.Set;
@@ -94,6 +98,50 @@ class AlertRuleControllerTest {
 				.andExpect(status().isBadRequest());
 
 		verify(service, never()).create(any());
+	}
+
+	@Test
+	void updatesThresholdChannelsCooldownAndTriggerMode() throws Exception {
+		when(service.update(eq(1L), any())).thenReturn(response(AlertTriggerMode.REPEAT));
+
+		mockMvc.perform(patch("/api/alert-rules/1")
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("""
+								{"thresholdValue":80000,"channels":["DISCORD"],"cooldownMinutes":30,"triggerMode":"REPEAT"}"""))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.triggerMode").value("REPEAT"));
+
+		ArgumentCaptor<AlertRuleUpdateRequest> captor = ArgumentCaptor.captor();
+		verify(service).update(eq(1L), captor.capture());
+		org.assertj.core.api.Assertions.assertThat(captor.getValue().thresholdValue()).isEqualByComparingTo("80000");
+		org.assertj.core.api.Assertions.assertThat(captor.getValue().channels()).containsExactly(AlertChannel.DISCORD);
+		org.assertj.core.api.Assertions.assertThat(captor.getValue().cooldownMinutes()).isEqualTo(30);
+	}
+
+	@Test
+	void updateWithOnlyActiveLeavesEverythingElseNullInTheRequest() throws Exception {
+		when(service.update(eq(1L), any())).thenReturn(response(AlertTriggerMode.EDGE));
+
+		mockMvc.perform(patch("/api/alert-rules/1")
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("""
+								{"active":false}"""))
+				.andExpect(status().isOk());
+
+		ArgumentCaptor<AlertRuleUpdateRequest> captor = ArgumentCaptor.captor();
+		verify(service).update(eq(1L), captor.capture());
+		org.assertj.core.api.Assertions.assertThat(captor.getValue().active()).isFalse();
+		org.assertj.core.api.Assertions.assertThat(captor.getValue().thresholdValue()).isNull();
+	}
+
+	@Test
+	void mapsAnUpdateOnAMissingRuleTo404() throws Exception {
+		when(service.update(eq(99L), any())).thenThrow(new NotFoundException("알림 규칙을 찾을 수 없습니다: 99"));
+
+		mockMvc.perform(patch("/api/alert-rules/99")
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("{\"active\":false}"))
+				.andExpect(status().isNotFound());
 	}
 
 	@Test

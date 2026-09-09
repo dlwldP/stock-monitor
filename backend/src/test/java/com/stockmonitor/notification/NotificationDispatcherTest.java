@@ -66,6 +66,56 @@ class NotificationDispatcherTest {
 	}
 
 	@Test
+	void retriesOnceForATransientFailureAndSucceeds() throws NotificationDeliveryException {
+		NotificationChannel discord = mock(NotificationChannel.class);
+		when(discord.type()).thenReturn(AlertChannel.DISCORD);
+		// Wrapping a cause is what makes a failure retryable - see NotificationDeliveryException.
+		org.mockito.Mockito.doThrow(new NotificationDeliveryException("일시적 오류", new RuntimeException("timeout")))
+				.doNothing()
+				.when(discord).send(org.mockito.ArgumentMatchers.any());
+		NotificationDispatcher dispatcher = new NotificationDispatcher(List.of(discord), alertLogRepository, 0);
+
+		dispatcher.dispatch(event(rule(Set.of(AlertChannel.DISCORD))));
+
+		verify(discord, times(2)).send(org.mockito.ArgumentMatchers.any());
+		ArgumentCaptor<AlertLog> captor = ArgumentCaptor.forClass(AlertLog.class);
+		verify(alertLogRepository, times(1)).save(captor.capture());
+		assertThat(captor.getValue().getStatus()).isEqualTo(AlertLogStatus.SUCCESS);
+	}
+
+	@Test
+	void givesUpAfterOneRetryIfStillFailing() throws NotificationDeliveryException {
+		NotificationChannel discord = mock(NotificationChannel.class);
+		when(discord.type()).thenReturn(AlertChannel.DISCORD);
+		org.mockito.Mockito.doThrow(new NotificationDeliveryException("계속 실패", new RuntimeException("timeout")))
+				.when(discord).send(org.mockito.ArgumentMatchers.any());
+		NotificationDispatcher dispatcher = new NotificationDispatcher(List.of(discord), alertLogRepository, 0);
+
+		dispatcher.dispatch(event(rule(Set.of(AlertChannel.DISCORD))));
+
+		// One initial attempt + one retry, not an unbounded loop.
+		verify(discord, times(2)).send(org.mockito.ArgumentMatchers.any());
+		ArgumentCaptor<AlertLog> captor = ArgumentCaptor.forClass(AlertLog.class);
+		verify(alertLogRepository, times(1)).save(captor.capture());
+		assertThat(captor.getValue().getStatus()).isEqualTo(AlertLogStatus.FAILED);
+		assertThat(captor.getValue().getMessage()).isEqualTo("계속 실패");
+	}
+
+	@Test
+	void doesNotRetryAConfigMissingFailureSinceItWouldFailTheSameWayAgain() throws NotificationDeliveryException {
+		NotificationChannel discord = mock(NotificationChannel.class);
+		when(discord.type()).thenReturn(AlertChannel.DISCORD);
+		// No cause attached - not retryable, per NotificationDeliveryException.isRetryable().
+		org.mockito.Mockito.doThrow(new NotificationDeliveryException("DISCORD_WEBHOOK_URL이 설정되어 있지 않습니다."))
+				.when(discord).send(org.mockito.ArgumentMatchers.any());
+		NotificationDispatcher dispatcher = new NotificationDispatcher(List.of(discord), alertLogRepository, 0);
+
+		dispatcher.dispatch(event(rule(Set.of(AlertChannel.DISCORD))));
+
+		verify(discord, times(1)).send(org.mockito.ArgumentMatchers.any());
+	}
+
+	@Test
 	void logsFailureForAChannelWithNoRegisteredAdapter() {
 		// No NotificationChannel beans at all registered for EMAIL.
 		NotificationDispatcher dispatcher = new NotificationDispatcher(List.of(), alertLogRepository);

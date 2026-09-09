@@ -40,7 +40,7 @@ public class AlertRuleController {
 
 	@PatchMapping("/{id}")
 	public AlertRuleResponse update(@PathVariable Long id, @Valid @RequestBody AlertRuleUpdateRequest request) {
-		return service.setActive(id, request.active());
+		return service.update(id, request);
 	}
 
 	@DeleteMapping("/{id}")

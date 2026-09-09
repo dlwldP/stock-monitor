@@ -13,8 +13,10 @@ import com.stockmonitor.domain.AlertRule;
 import com.stockmonitor.domain.Market;
 import com.stockmonitor.repository.AlertLogRepository;
 import com.stockmonitor.repository.AlertRuleRepository;
+import com.stockmonitor.domain.AlertTriggerMode;
 import com.stockmonitor.web.dto.AlertRuleRequest;
 import com.stockmonitor.web.dto.AlertRuleResponse;
+import com.stockmonitor.web.dto.AlertRuleUpdateRequest;
 import com.stockmonitor.web.exception.NotFoundException;
 import java.math.BigDecimal;
 import java.util.Optional;
@@ -70,21 +72,83 @@ class AlertRuleServiceTest {
 				.hasMessageContaining("cooldownMinutes");
 	}
 
-	@Test
-	void setActiveTogglesAnExistingRule() {
-		AlertRule rule = new AlertRule("005930", Market.KR, AlertConditionType.PRICE_ABOVE, new BigDecimal("70000"), Set.of(AlertChannel.INAPP), 60);
-		when(repository.findById(1L)).thenReturn(Optional.of(rule));
+	private AlertRule existingRule() {
+		return new AlertRule("005930", Market.KR, AlertConditionType.PRICE_ABOVE, new BigDecimal("70000"), Set.of(AlertChannel.INAPP), 60);
+	}
 
-		AlertRuleResponse response = service.setActive(1L, false);
+	private static AlertRuleUpdateRequest update(
+			Boolean active, BigDecimal thresholdValue, Set<AlertChannel> channels, Integer cooldownMinutes, AlertTriggerMode triggerMode) {
+		return new AlertRuleUpdateRequest(active, thresholdValue, channels, cooldownMinutes, triggerMode);
+	}
+
+	@Test
+	void updateTogglesActive() {
+		when(repository.findById(1L)).thenReturn(Optional.of(existingRule()));
+
+		AlertRuleResponse response = service.update(1L, update(false, null, null, null, null));
 
 		assertThat(response.active()).isFalse();
 	}
 
 	@Test
-	void setActiveThrowsWhenRuleMissing() {
+	void updateThrowsWhenRuleMissing() {
 		when(repository.findById(99L)).thenReturn(Optional.empty());
 
-		assertThatThrownBy(() -> service.setActive(99L, true)).isInstanceOf(NotFoundException.class);
+		assertThatThrownBy(() -> service.update(99L, update(true, null, null, null, null)))
+				.isInstanceOf(NotFoundException.class);
+	}
+
+	@Test
+	void updateChangesThresholdChannelsCooldownAndTriggerModeTogether() {
+		when(repository.findById(1L)).thenReturn(Optional.of(existingRule()));
+
+		AlertRuleResponse response = service.update(1L, update(
+				null, new BigDecimal("80000"), Set.of(AlertChannel.DISCORD), 30, AlertTriggerMode.REPEAT));
+
+		assertThat(response.thresholdValue()).isEqualByComparingTo("80000");
+		assertThat(response.channels()).containsExactly(AlertChannel.DISCORD);
+		assertThat(response.cooldownMinutes()).isEqualTo(30);
+		assertThat(response.triggerMode()).isEqualTo(AlertTriggerMode.REPEAT);
+	}
+
+	@Test
+	void updateLeavesFieldsAloneWhenTheirRequestValueIsNull() {
+		AlertRule rule = existingRule();
+		when(repository.findById(1L)).thenReturn(Optional.of(rule));
+
+		AlertRuleResponse response = service.update(1L, update(null, new BigDecimal("80000"), null, null, null));
+
+		// Only thresholdValue was in the request; everything else is exactly what it was.
+		assertThat(response.channels()).containsExactly(AlertChannel.INAPP);
+		assertThat(response.cooldownMinutes()).isEqualTo(60);
+		assertThat(response.active()).isTrue();
+	}
+
+	@Test
+	void updateRejectsAZeroOrNegativeThreshold() {
+		when(repository.findById(1L)).thenReturn(Optional.of(existingRule()));
+
+		assertThatThrownBy(() -> service.update(1L, update(null, BigDecimal.ZERO, null, null, null)))
+				.isInstanceOf(IllegalArgumentException.class)
+				.hasMessageContaining("thresholdValue");
+	}
+
+	@Test
+	void updateRejectsAnEmptyChannelSet() {
+		when(repository.findById(1L)).thenReturn(Optional.of(existingRule()));
+
+		assertThatThrownBy(() -> service.update(1L, update(null, null, Set.of(), null, null)))
+				.isInstanceOf(IllegalArgumentException.class)
+				.hasMessageContaining("channels");
+	}
+
+	@Test
+	void updateRejectsANegativeCooldown() {
+		when(repository.findById(1L)).thenReturn(Optional.of(existingRule()));
+
+		assertThatThrownBy(() -> service.update(1L, update(null, null, null, -1, null)))
+				.isInstanceOf(IllegalArgumentException.class)
+				.hasMessageContaining("cooldownMinutes");
 	}
 
 	@Test
